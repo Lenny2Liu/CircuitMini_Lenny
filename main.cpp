@@ -265,52 +265,59 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
     return true;
 }
 
-void outputCircuit(int totalTriStateGates, int totalTriStateWires,
+void outputCircuit(const std::string& outputFilename, int totalTriStateGates, int totalTriStateWires,
                    int niv, const std::vector<int>& inputWireCounts,
                    int nov, const std::vector<int>& outputWireCounts,
                    const std::vector<TriStateGate>& triStateGates) {
-    std::cout << totalTriStateGates << " " << totalTriStateWires << std::endl;
-    std::cout << niv;
-    for (int count : inputWireCounts) {
-        std::cout << " " << count;
+    std::ofstream outFile(outputFilename);
+    if (!outFile) {
+        std::cerr << "Failed to open output file: " << outputFilename << std::endl;
+        exit(1);
     }
-    std::cout << std::endl;
-    std::cout << nov;
-    for (int count : outputWireCounts) {
-        std::cout << " " << count;
-    }
-    std::cout << std::endl;
 
-    for (size_t i = 0; i < triStateGates.size(); ++i) {
-        const TriStateGate& tsGate = triStateGates[i];
+    outFile << totalTriStateGates << " " << totalTriStateWires << std::endl;
+    outFile << niv;
+    for (int count : inputWireCounts) {
+        outFile << " " << count;
+    }
+    outFile << std::endl;
+    outFile << nov;
+    for (int count : outputWireCounts) {
+        outFile << " " << count;
+    }
+    outFile << std::endl;
+
+    for (const TriStateGate& tsGate : triStateGates) {
         if (tsGate.type == "XOR") {
-            std::cout << "2 1 " << tsGate.inputWires[0] << " " << tsGate.inputWires[1]
-                      << " " << tsGate.outputWire << " XOR" << std::endl;
+            outFile << "2 1 " << tsGate.inputWires[0] << " " << tsGate.inputWires[1]
+                    << " " << tsGate.outputWire << " XOR" << std::endl;
         }
         else if (tsGate.type == "JOIN") {
-            std::cout << "2 1 " << tsGate.inputWires[0] << " " << tsGate.inputWires[1]
-                      << " " << tsGate.outputWire << " JOIN" << std::endl;
+            outFile << "2 1 " << tsGate.inputWires[0] << " " << tsGate.inputWires[1]
+                    << " " << tsGate.outputWire << " JOIN" << std::endl;
         }
         else if (tsGate.type == "BUFFER") {
-            std::cout << "2 1 " << tsGate.inputWires[0] << " " << tsGate.inputWires[1]
-                      << " " << tsGate.outputWire << " BUFFER" << std::endl;
+            outFile << "2 1 " << tsGate.inputWires[0] << " " << tsGate.inputWires[1]
+                    << " " << tsGate.outputWire << " BUFFER" << std::endl;
         }
         else if (tsGate.type == "CONST_ONE") {
-            std::cout << "0 1 " << tsGate.outputWire << " CONST_ONE" << std::endl;
+            outFile << "0 1 " << tsGate.outputWire << " CONST_ONE" << std::endl;
         }
         else if (tsGate.type == "CONST_ZERO") {
-            std::cout << "0 1 " << tsGate.outputWire << " CONST_ZERO" << std::endl;
+            outFile << "0 1 " << tsGate.outputWire << " CONST_ZERO" << std::endl;
         }
         else {
             std::cerr << "Unsupported tri-state gate type: " << tsGate.type << std::endl;
             exit(1);
         }
     }
+
+    outFile.close();
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: ./transformer <input_circuit_file>" << std::endl;
+    if (argc != 3) {
+        std::cerr << "Usage: ./transformer <input_circuit_file> <output_file>" << std::endl;
         return 1;
     }
 
@@ -332,7 +339,7 @@ int main(int argc, char* argv[]) {
     int totalTriStateGates = triStateGates.size();
     int totalTriStateWires = nextWireId;
 
-    outputCircuit(totalTriStateGates, totalTriStateWires,
+    outputCircuit(argv[2], totalTriStateGates, totalTriStateWires,
                   niv, inputWireCounts, nov, outputWireCounts,
                   triStateGates);
 
