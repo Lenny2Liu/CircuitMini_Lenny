@@ -1,0 +1,51 @@
+#ifndef QBFENCODER_H
+#define QBFENCODER_H
+
+#include <string>
+#include <vector>
+#include <unordered_map>
+#include <unordered_set>
+#include "circuit.h"
+#include "utils.h"
+
+// Structure for wire variables
+struct WireVars {
+    int v1;
+    int v2;
+};
+
+// Function declarations
+void addExactlyOneConstraint(const std::vector<int>& vars, std::vector<std::string>& clauses);
+void addConstGateCompatibilityConstraints(
+    int funcVar,
+    GateType funcType,
+    int gateOutputVar_v1, int gateOutputVar_v2,
+    std::vector<std::string>& clauses
+);
+void addBUFFERCompatibilityConstraints(
+    int funcVar, 
+    int selVar1, int selVar2,  
+    int controlVar_v1, int controlVar_v2, 
+    int dataVar_v1, int dataVar_v2, 
+    int gateOutputVar_v1, int gateOutputVar_v2, 
+    std::vector<std::string>& clauses
+);
+void addJOINCompatibilityConstraints(
+    int funcVar, 
+    int selVar1, int selVar2, 
+    int inputVar1_v1, int inputVar1_v2, 
+    int inputVar2_v1, int inputVar2_v2, 
+    int gateOutputVar_v1, int gateOutputVar_v2, 
+    std::vector<std::string>& clauses
+);
+void addXORCompatibilityConstraints(
+    int funcVar, 
+    int selVar1, int selVar2, 
+    int inputVar1_v1, int inputVar1_v2, 
+    int inputVar2_v1, int inputVar2_v2, 
+    int gateOutputVar_v1, int gateOutputVar_v2, 
+    std::vector<std::string>& clauses
+);
+void encodeSubcircuitAsQBF(const Circuit& subcircuit, const std::string& filename);
+
+#endif // QBFENCODER_H
