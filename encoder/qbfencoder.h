@@ -8,13 +8,13 @@
 #include "circuit.h"
 #include "utils.h"
 
-// Structure for wire variables
+
 struct WireVars {
     int v1;
     int v2;
 };
 
-// Function declarations
+
 int addExactlyOneConstraint(const std::vector<int>& vars, std::vector<std::string>& clauses);
 int addConstGateCompatibilityConstraints(
     int funcVar,
@@ -48,4 +48,4 @@ int addXORCompatibilityConstraints(
 );
 void encodeSubcircuitAsQBF(const Circuit& subcircuit, const std::string& filename);
 
-#endif // QBFENCODER_H
+#endif 
