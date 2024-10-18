@@ -5,9 +5,10 @@
 
 using namespace std;
 
-void addExactlyOneConstraint(const vector<int>& vars, vector<string>& clauses) {
+int addExactlyOneConstraint(const vector<int>& vars, vector<string>& clauses) {
     // At least one variable is true
     string atLeastOneClause;
+    int initialClauseCount = clauses.size();
     for (int var : vars) {
         atLeastOneClause += to_string(var) + " ";
     }
@@ -20,14 +21,16 @@ void addExactlyOneConstraint(const vector<int>& vars, vector<string>& clauses) {
             clauses.push_back(to_string(-vars[i]) + " " + to_string(-vars[j]) + " 0");
         }
     }
+    return clauses.size() - initialClauseCount;
 }
 
-void addConstGateCompatibilityConstraints(
+int addConstGateCompatibilityConstraints(
     int funcVar,
     GateType funcType,
     int gateOutputVar_v1, int gateOutputVar_v2,
     vector<string>& clauses
 ) {
+    int initialClauseCount = clauses.size();
     if (funcType == CONST_ZERO) {
         // Clauses to enforce:
         // -funcVar ∨ -gateOutputVar_v1
@@ -47,9 +50,10 @@ void addConstGateCompatibilityConstraints(
     } else {
         cerr << "Invalid gate type in addConstGateCompatibilityConstraints" << endl;
     }
+    return clauses.size() - initialClauseCount;
 }
 
-void addBUFFERCompatibilityConstraints(
+int addBUFFERCompatibilityConstraints(
     int funcVar, 
     int selVar1, int selVar2,  
     int controlVar_v1, int controlVar_v2, 
@@ -57,6 +61,7 @@ void addBUFFERCompatibilityConstraints(
     int gateOutputVar_v1, int gateOutputVar_v2, 
     vector<string>& clauses
 ) {
+    int initialClauseCount = clauses.size();
     // Possible states for control and data
     vector<tuple<int, int>> possibleStates = {
         {1, 0}, // Z
@@ -101,9 +106,10 @@ void addBUFFERCompatibilityConstraints(
             clauses.push_back(clause_v2);
         }
     }
+    return clauses.size() - initialClauseCount;
 }
 
-void addJOINCompatibilityConstraints(
+int addJOINCompatibilityConstraints(
     int funcVar, 
     int selVar1, int selVar2, 
     int inputVar1_v1, int inputVar1_v2, 
@@ -111,6 +117,8 @@ void addJOINCompatibilityConstraints(
     int gateOutputVar_v1, int gateOutputVar_v2, 
     vector<string>& clauses
 ) {
+
+    int initialClauseCount = clauses.size();
     vector<tuple<int, int>> inputStates = {
         {1, 0}, // Z
         {0, 0}, // 0
@@ -189,9 +197,10 @@ void addJOINCompatibilityConstraints(
             clauses.push_back(clause_v2);
         }
     }
+    return clauses.size() - initialClauseCount;
 }
 
-void addXORCompatibilityConstraints(
+int addXORCompatibilityConstraints(
     int funcVar, 
     int selVar1, int selVar2, 
     int inputVar1_v1, int inputVar1_v2, 
@@ -199,6 +208,7 @@ void addXORCompatibilityConstraints(
     int gateOutputVar_v1, int gateOutputVar_v2, 
     vector<string>& clauses
 ) {
+    int initialClauseCount = clauses.size();
     vector<tuple<int, int>> inputStates = {
         {1, 0}, // Z
         {0, 0}, // 0
@@ -269,6 +279,7 @@ void addXORCompatibilityConstraints(
             clauses.push_back(clause_v2);
         }
     }
+    return clauses.size() - initialClauseCount;
 }
 
 void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
@@ -295,11 +306,17 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
     int numGates = subcircuit.gates.size();
     vector<GateType> possibleFunctions = {XOR, BUFFER, JOIN, CONST_ZERO, CONST_ONE};
 
-    // Function to get the number of inputs for each gate type
+    // Initialize counters for clauses
+    int numNoIllegalStateClauses = 0;
+    int numSelectionConstraints = 0;
+    int numFunctionConstraints = 0;
+    int numGateConsistencyConstraints = 0;
+    int numAcyclicityConstraints = 0;
+    int numSymmetryBreakingConstraints = 0;
+
     auto getNumInputs = [](GateType type) -> int {
         switch (type) {
             case BUFFER:
-                return 2; // BUFFER now has 2 inputs
             case JOIN:
             case XOR:
                 return 2;
@@ -324,7 +341,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
         wireVarMap[wireID] = vars;
     }
 
-    // gate outputs (gate value variables)
+    // Gate outputs
     for (int i = 0; i < numGates; ++i) {
         int gateOutputWireID = subcircuit.gates[i].output;
         if (wireVarMap.find(gateOutputWireID) == wireVarMap.end()) {
@@ -339,7 +356,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
         possibleInputs.push_back(gateOutputWireID);
     }
 
-    // selection variables (s_{it})
+    // Selection variables (s_{it})
     int maxNumInputPins = 2; // Maximum number of inputs any gate can have
     for (int i = 0; i < numGates; ++i) {
         int numPins = getNumInputs(subcircuit.gates[i].type);
@@ -356,7 +373,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
         }
     }
 
-    // function variables (f_{i,a1a2})
+    // Function variables (f_{i,a1a2})
     for (int i = 0; i < numGates; ++i) {
         for (const auto& funcType : possibleFunctions) {
             int varID = ++varCounter;
@@ -365,7 +382,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
         }
     }
 
-    // output variables (o_{tj})
+    // Output variables (o_{tj})
     for (int i = 0; i < numOutputs; ++i) {
         int outputWireID = subcircuit.outputWires[i];
         outputVars.insert(wireVarMap[outputWireID].v1);
@@ -392,15 +409,16 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
 
     vector<string> clauses;
 
-    // 1. no wire in the illegal state
+    // 1. No wire in the illegal state
     for (const auto& entry : wireVarMap) {
         int v1 = entry.second.v1;
         int v2 = entry.second.v2;
         // Clause: -v1 ∨ -v2 (at least one of v1 or v2 is 0)
         clauses.push_back(to_string(-v1) + " " + to_string(-v2) + " 0");
+        numNoIllegalStateClauses++;
     }
 
-    // 2. exactly one selection variable is true
+    // 2. Exactly one selection variable is true
     for (int i = 0; i < numGates; ++i) {
         int numPins = getNumInputs(subcircuit.gates[i].type);
         if (numPins == 0) {
@@ -413,11 +431,11 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
                 gateSelectionVars.push_back(selVar);
             }
             // Add constraints that exactly one selection variable is true
-            addExactlyOneConstraint(gateSelectionVars, clauses);
+            numSelectionConstraints += addExactlyOneConstraint(gateSelectionVars, clauses);
         }
     }
 
-    // 3. exactly one function is selected
+    // 3. Exactly one function is selected
     for (int i = 0; i < numGates; ++i) {
         vector<int> gateFuncVars;
         for (const auto& funcType : possibleFunctions) {
@@ -425,10 +443,10 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
             gateFuncVars.push_back(funcVar);
         }
         // Add constraint that exactly one function variable is true
-        addExactlyOneConstraint(gateFuncVars, clauses);
+        numFunctionConstraints += addExactlyOneConstraint(gateFuncVars, clauses);
     }
 
-    // 4. gate outputs are consistent with selected inputs and functions
+    // 4. Gate outputs are consistent with selected inputs and functions
     for (int i = 0; i < numGates; ++i) {
         const Gate& gate = subcircuit.gates[i];
         int gateOutputWireID = gate.output;
@@ -441,7 +459,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
                 int funcVar = gateFunctionVarMap[{i, funcType}];
 
                 if (funcType == CONST_ZERO || funcType == CONST_ONE) {
-                    addConstGateCompatibilityConstraints(
+                    numGateConsistencyConstraints += addConstGateCompatibilityConstraints(
                         funcVar,
                         funcType,
                         gateOutputVars.v1,
@@ -463,7 +481,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
                         int funcVar = gateFunctionVarMap[{i, funcType}];
 
                         if (funcType == BUFFER) {
-                            addBUFFERCompatibilityConstraints(
+                            numGateConsistencyConstraints += addBUFFERCompatibilityConstraints(
                                 funcVar, selVar1, selVar2,
                                 inputVars1.v1, inputVars1.v2,
                                 inputVars2.v1, inputVars2.v2,
@@ -471,7 +489,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
                                 clauses
                             );
                         } else if (funcType == XOR) {
-                            addXORCompatibilityConstraints(
+                            numGateConsistencyConstraints += addXORCompatibilityConstraints(
                                 funcVar, selVar1, selVar2,
                                 inputVars1.v1, inputVars1.v2,
                                 inputVars2.v1, inputVars2.v2,
@@ -479,7 +497,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
                                 clauses
                             );
                         } else if (funcType == JOIN) {
-                            addJOINCompatibilityConstraints(
+                            numGateConsistencyConstraints += addJOINCompatibilityConstraints(
                                 funcVar, selVar1, selVar2,
                                 inputVars1.v1, inputVars1.v2,
                                 inputVars2.v1, inputVars2.v2,
@@ -493,7 +511,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
         } 
     }
 
-    // 5. acyclicity
+    // 5. Acyclicity
     for (int i = 0; i < numGates; ++i) {
         int numPins = getNumInputs(subcircuit.gates[i].type);
         if (numPins == 0) {
@@ -513,12 +531,13 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
                     // Add clause to prevent selection of this input
                     int selVar = selectionVarMap[{i * maxNumInputPins + inputPin, t}];
                     clauses.push_back(to_string(-selVar) + " 0");
+                    numAcyclicityConstraints++;
                 }
             }
         }
     }
 
-    // 6. symmetry breaking
+    // 6. Symmetry breaking
     for (int i = 1; i < numGates; ++i) {
         for (const auto& funcTypePrev : possibleFunctions) {
             for (const auto& funcTypeCurr : possibleFunctions) {
@@ -527,6 +546,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
                     int funcVarCurr = gateFunctionVarMap[{i, funcTypeCurr}];
                     // Add constraint: -(funcVarPrev) ∨ -(funcVarCurr)
                     clauses.push_back(to_string(-funcVarPrev) + " " + to_string(-funcVarCurr) + " 0");
+                    numSymmetryBreakingConstraints++;
                 }
             }
         }
@@ -537,8 +557,16 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const string& filename) {
     for (const string& clause : clauses) {
         outfile << clause << endl;
     }
+
+    // Output counts
     cout << "Subcircuit has " << n << " input wires and " << numGates << " gates." << endl;
     cout << "Initial possibleInputs size: " << possibleInputs.size() << endl;
+    cout << "Number of 'no illegal state' clauses: " << numNoIllegalStateClauses << endl;
+    cout << "Number of 'selection variable' constraints: " << numSelectionConstraints << endl;
+    cout << "Number of 'function variable' constraints: " << numFunctionConstraints << endl;
+    cout << "Number of 'gate consistency' constraints: " << numGateConsistencyConstraints << endl;
+    cout << "Number of 'acyclicity' constraints: " << numAcyclicityConstraints << endl;
+    cout << "Number of 'symmetry breaking' constraints: " << numSymmetryBreakingConstraints << endl;
     cout << "Total clauses: " << totalClauses << endl;
 
     // Update the header line with the correct number of clauses

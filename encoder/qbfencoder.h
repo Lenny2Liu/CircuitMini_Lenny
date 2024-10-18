@@ -15,14 +15,14 @@ struct WireVars {
 };
 
 // Function declarations
-void addExactlyOneConstraint(const std::vector<int>& vars, std::vector<std::string>& clauses);
-void addConstGateCompatibilityConstraints(
+int addExactlyOneConstraint(const std::vector<int>& vars, std::vector<std::string>& clauses);
+int addConstGateCompatibilityConstraints(
     int funcVar,
     GateType funcType,
     int gateOutputVar_v1, int gateOutputVar_v2,
     std::vector<std::string>& clauses
 );
-void addBUFFERCompatibilityConstraints(
+int addBUFFERCompatibilityConstraints(
     int funcVar, 
     int selVar1, int selVar2,  
     int controlVar_v1, int controlVar_v2, 
@@ -30,7 +30,7 @@ void addBUFFERCompatibilityConstraints(
     int gateOutputVar_v1, int gateOutputVar_v2, 
     std::vector<std::string>& clauses
 );
-void addJOINCompatibilityConstraints(
+int addJOINCompatibilityConstraints(
     int funcVar, 
     int selVar1, int selVar2, 
     int inputVar1_v1, int inputVar1_v2, 
@@ -38,7 +38,7 @@ void addJOINCompatibilityConstraints(
     int gateOutputVar_v1, int gateOutputVar_v2, 
     std::vector<std::string>& clauses
 );
-void addXORCompatibilityConstraints(
+int addXORCompatibilityConstraints(
     int funcVar, 
     int selVar1, int selVar2, 
     int inputVar1_v1, int inputVar1_v2, 
