@@ -1,6 +1,7 @@
 qbf
+slides
 .vscode
-encode_circuit
 transformer
 .DS_Store
 *.txt
+*.o

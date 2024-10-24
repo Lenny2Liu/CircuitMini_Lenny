@@ -121,65 +121,6 @@ Circuit readCircuit(const string& filename) {
     return circuit;
 }
 
-// vector<int> topologicalSort(const Circuit& circuit) {
-//     // Build adjacency list and compute in-degrees
-//     unordered_map<int, vector<int>> adjList;
-//     unordered_map<int, int> inDegree;
-//     unordered_set<int> nodeSet;
-//     for (const auto& gate : circuit.gates) {
-//         nodeSet.insert(gate.output);
-//         if (gate.input1 >= 0) {
-//             adjList[gate.input1].push_back(gate.output);
-//             inDegree[gate.output]++;
-//             nodeSet.insert(gate.input1);
-//         }
-//         if (gate.input2 >= 0) {
-//             adjList[gate.input2].push_back(gate.output);
-//             inDegree[gate.output]++;
-//             nodeSet.insert(gate.input2);
-//         }
-//         if (inDegree.find(gate.output) == inDegree.end()) {
-//             inDegree[gate.output] = 0; 
-//         }
-//     }
-//     queue<int> zeroInDegree;
-//     for (int node : nodeSet) {
-//         if (inDegree[node] == 0) {
-//             zeroInDegree.push(node);
-//         }
-//     }
-//     vector<int> topoOrder;
-//     while (!zeroInDegree.empty()) {
-//         int node = zeroInDegree.front();
-//         zeroInDegree.pop();
-//         topoOrder.push_back(node);
-
-//         for (int neighbor : adjList[node]) {
-//             inDegree[neighbor]--;
-//             if (inDegree[neighbor] == 0) {
-//                 zeroInDegree.push(neighbor);
-//             }
-//         }
-//     }
-//     unordered_map<int, int> wireToGateIndex;
-//     for (size_t i = 0; i < circuit.gates.size(); ++i) {
-//         wireToGateIndex[circuit.gates[i].output] = i;
-//     }
-//     vector<int> sortedGateIndices;
-//     for (int wireID : topoOrder) {
-//         if (wireToGateIndex.find(wireID) != wireToGateIndex.end()) {
-//             sortedGateIndices.push_back(wireToGateIndex[wireID]);
-//         }
-//     }
-
-//     return sortedGateIndices;
-// }
-
-
-
-
-
-
 vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize) {
     vector<Circuit> subcircuits;
 

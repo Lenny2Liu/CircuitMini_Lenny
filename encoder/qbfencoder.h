@@ -46,6 +46,6 @@ int addXORCompatibilityConstraints(
     int gateOutputVar_v1, int gateOutputVar_v2, 
     std::vector<std::string>& clauses
 );
-void encodeSubcircuitAsQBF(const Circuit& subcircuit, const std::string& filename);
+void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const std::string& filename);
 
 #endif 
