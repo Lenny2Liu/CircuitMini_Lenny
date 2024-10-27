@@ -24,99 +24,107 @@ int addExactlyOneConstraint(const vector<int>& vars, vector<string>& clauses) {
     return clauses.size() - initialClauseCount;
 }
 
-int addSpecFunctionCNF(
+
+
+int addEquivalenceConstraints(
     const vector<int>& inputVars_v1,
     const vector<int>& inputVars_v2,
-    int& fSpecVar_v1,
-    int& fSpecVar_v2,
-    vector<string>& clauses,
-    int& varCounter
+    const vector<int>& origOutputVars_v1,
+    const vector<int>& origOutputVars_v2,
+    const vector<int>& modOutputVars_v1,
+    const vector<int>& modOutputVars_v2,
+    vector<string>& clauses
 ) {
-    // Example: Let's assume fspec is a tri-state buffer controlled by 'enable' and 'data_in'
-    // Inputs: inputVars[0] = 'data_in', inputVars[1] = 'enable'
+    int initialClauseCount = clauses.size();
+    int n = inputVars_v1.size(); 
+    int m = origOutputVars_v1.size(); 
 
-    // Introduce new variables for fSpecVar_v1 and fSpecVar_v2
-    fSpecVar_v1 = varCounter++;
-    fSpecVar_v2 = varCounter++;
 
-    int dataIn_v1 = inputVars_v1[0];
-    int dataIn_v2 = inputVars_v2[0];
-    int enable_v1 = inputVars_v1[1];
-    int enable_v2 = inputVars_v2[1];
-
-    // For simplicity, we can expand the truth table and encode it directly
-
-    vector<tuple<int, int, int, int>> possibleStates = {
-        {1, 0, 1, 0}, 
-        {0, 0, 1, 0}, 
-        {0, 1, 1, 0}, 
-        {1, 0, 0, 1}, 
-        {0, 0, 0, 1}, 
-        {0, 1, 0, 1} 
+    vector<pair<int, int>> possibleStates = {
+        {0, 0}, 
+        {0, 1}, 
+        {1, 0}  
     };
 
-    for (const auto& state : possibleStates) {
-        int d_v1 = get<0>(state);
-        int d_v2 = get<1>(state);
-        int e_v1 = get<2>(state);
-        int e_v2 = get<3>(state);
-
-        int out_v1, out_v2;
-        if (e_v1 == 1 && e_v2 == 0) {
-            // Enable is 1, output follows data_in
-            out_v1 = d_v1;
-            out_v2 = d_v2;
-        } else {
-            // Enable is 0, output is Z (0,0)
-            out_v1 = 0;
-            out_v2 = 0;
+    // Generate all possible input combinations
+    int numCombinations = pow(possibleStates.size(), n);
+    for (int idx = 0; idx < numCombinations; ++idx) {
+        vector<pair<int, int>> inputCombination;
+        int temp = idx;
+        for (int i = 0; i < n; ++i) {
+            int stateIdx = temp % possibleStates.size();
+            inputCombination.push_back(possibleStates[stateIdx]);
+            temp /= possibleStates.size();
         }
 
-        // Create clauses
-        // (¬(d_v1 clause) ∨ ¬(d_v2 clause) ∨ ¬(e_v1 clause) ∨ ¬(e_v2 clause) ∨ (fSpecVar_v1 clause))
-        // Similar for fSpecVar_v2
+        // Skip if any input is in illegal state (1,1)
+        bool illegalInput = false;
+        for (const auto& state : inputCombination) {
+            if (state.first == 1 && state.second == 1) {
+                illegalInput = true;
+                break;
+            }
+        }
+        if (illegalInput) continue;
 
-        string clause_v1 = "";
-        clause_v1 += (d_v1 == 1 ? to_string(dataIn_v1) : to_string(-dataIn_v1)) + " ";
-        clause_v1 += (d_v2 == 1 ? to_string(dataIn_v2) : to_string(-dataIn_v2)) + " ";
-        clause_v1 += (e_v1 == 1 ? to_string(enable_v1) : to_string(-enable_v1)) + " ";
-        clause_v1 += (e_v2 == 1 ? to_string(enable_v2) : to_string(-enable_v2)) + " ";
-        clause_v1 += to_string(-fSpecVar_v1) + " 0";
-        clauses.push_back(clause_v1);
+        // Build clauses to enforce that origOutputVars == modOutputVars under this input assignment
+        // For each output
+        for (int k = 0; k < m; ++k) {
+            // Build clauses for output_v1 and output_v2
+            string clause_v1;
+            string clause_v2;
+            // Add input variable assignments
+            for (int i = 0; i < n; ++i) {
+                int in_v1 = inputVars_v1[i];
+                int in_v2 = inputVars_v2[i];
+                int val_v1 = inputCombination[i].first;
+                int val_v2 = inputCombination[i].second;
 
-        string clause_v2 = "";
-        clause_v2 += (d_v1 == 1 ? to_string(dataIn_v1) : to_string(-dataIn_v1)) + " ";
-        clause_v2 += (d_v2 == 1 ? to_string(dataIn_v2) : to_string(-dataIn_v2)) + " ";
-        clause_v2 += (e_v1 == 1 ? to_string(enable_v1) : to_string(-enable_v1)) + " ";
-        clause_v2 += (e_v2 == 1 ? to_string(enable_v2) : to_string(-enable_v2)) + " ";
-        clause_v2 += to_string(-fSpecVar_v2) + " 0";
-        clauses.push_back(clause_v2);
+                clause_v1 += (val_v1 == 1 ? to_string(in_v1) : to_string(-in_v1)) + " ";
+                clause_v1 += (val_v2 == 1 ? to_string(in_v2) : to_string(-in_v2)) + " ";
 
-        // Also need clauses for the cases where fSpecVar_v1 and fSpecVar_v2 are true
-        // (¬(d_v1 clause) ∨ ¬(d_v2 clause) ∨ ¬(e_v1 clause) ∨ ¬(e_v2 clause) ∨ (¬fSpecVar_v1 clause))
-        // Depending on out_v1 and out_v2
+                clause_v2 += (val_v1 == 1 ? to_string(in_v1) : to_string(-in_v1)) + " ";
+                clause_v2 += (val_v2 == 1 ? to_string(in_v2) : to_string(-in_v2)) + " ";
+            }
+            // Enforce that origOutputVars_v1 == modOutputVars_v1
+            clause_v1 += to_string(-origOutputVars_v1[k]) + " " + to_string(modOutputVars_v1[k]) + " 0";
+            clauses.push_back(clause_v1);
+            clause_v1 = ""; // Reset for next clause
 
-        // For out_v1
-        string clause_out_v1 = "";
-        clause_out_v1 += (d_v1 == 1 ? to_string(dataIn_v1) : to_string(-dataIn_v1)) + " ";
-        clause_out_v1 += (d_v2 == 1 ? to_string(dataIn_v2) : to_string(-dataIn_v2)) + " ";
-        clause_out_v1 += (e_v1 == 1 ? to_string(enable_v1) : to_string(-enable_v1)) + " ";
-        clause_out_v1 += (e_v2 == 1 ? to_string(enable_v2) : to_string(-enable_v2)) + " ";
-        clause_out_v1 += (out_v1 == 1 ? to_string(-fSpecVar_v1) : to_string(fSpecVar_v1)) + " 0";
-        clauses.push_back(clause_out_v1);
+            for (int i = 0; i < n; ++i) {
+                int in_v1 = inputVars_v1[i];
+                int in_v2 = inputVars_v2[i];
+                int val_v1 = inputCombination[i].first;
+                int val_v2 = inputCombination[i].second;
 
-        // For out_v2
-        string clause_out_v2 = "";
-        clause_out_v2 += (d_v1 == 1 ? to_string(dataIn_v1) : to_string(-dataIn_v1)) + " ";
-        clause_out_v2 += (d_v2 == 1 ? to_string(dataIn_v2) : to_string(-dataIn_v2)) + " ";
-        clause_out_v2 += (e_v1 == 1 ? to_string(enable_v1) : to_string(-enable_v1)) + " ";
-        clause_out_v2 += (e_v2 == 1 ? to_string(enable_v2) : to_string(-enable_v2)) + " ";
-        clause_out_v2 += (out_v2 == 1 ? to_string(-fSpecVar_v2) : to_string(fSpecVar_v2)) + " 0";
-        clauses.push_back(clause_out_v2);
+                clause_v1 += (val_v1 == 1 ? to_string(in_v1) : to_string(-in_v1)) + " ";
+                clause_v1 += (val_v2 == 1 ? to_string(in_v2) : to_string(-in_v2)) + " ";
+            }
+            clause_v1 += to_string(origOutputVars_v1[k]) + " " + to_string(-modOutputVars_v1[k]) + " 0";
+            clauses.push_back(clause_v1);
+
+            // Similarly for output_v2
+            clause_v2 += to_string(-origOutputVars_v2[k]) + " " + to_string(modOutputVars_v2[k]) + " 0";
+            clauses.push_back(clause_v2);
+            clause_v2 = "";
+
+            for (int i = 0; i < n; ++i) {
+                int in_v1 = inputVars_v1[i];
+                int in_v2 = inputVars_v2[i];
+                int val_v1 = inputCombination[i].first;
+                int val_v2 = inputCombination[i].second;
+
+                clause_v2 += (val_v1 == 1 ? to_string(in_v1) : to_string(-in_v1)) + " ";
+                clause_v2 += (val_v2 == 1 ? to_string(in_v2) : to_string(-in_v2)) + " ";
+            }
+            clause_v2 += to_string(origOutputVars_v2[k]) + " " + to_string(-modOutputVars_v2[k]) + " 0";
+            clauses.push_back(clause_v2);
+        }
     }
 
-    return clauses.size(); // Number of clauses added
+    return clauses.size() - initialClauseCount;
 }
+
 
 
 int addConstGateCompatibilityConstraints(
@@ -147,72 +155,95 @@ int addConstGateCompatibilityConstraints(
     }
     return clauses.size() - initialClauseCount;
 }
+
 int addBUFFERCompatibilityConstraints(
     int funcVar, 
     int selVar1, int selVar2,  
-    int controlVar_v1, int controlVar_v2, 
     int dataVar_v1, int dataVar_v2, 
+    int controlVar_v1, int controlVar_v2, 
     int gateOutputVar_v1, int gateOutputVar_v2, 
     vector<string>& clauses
 ) {
     int initialClauseCount = clauses.size();
 
+    // Possible states: {Z, 0, 1}
     vector<tuple<int, int>> possibleStates = {
         {1, 0}, // Z
         {0, 0}, // 0
-        {0, 1}, // 1
-        {1, 1}  // X (Illegal State)
+        {0, 1}  // 1
     };
-    
+
+    // For each combination of control and data states
     for (const auto& controlState : possibleStates) {
         int c_v1 = get<0>(controlState);
         int c_v2 = get<1>(controlState);
-        // Skip illegal control states
-        if (c_v1 == 1 && c_v2 == 1) continue;
 
         for (const auto& dataState : possibleStates) {
             int d_v1 = get<0>(dataState);
             int d_v2 = get<1>(dataState);
-            if (d_v1 == 1 && d_v2 == 1) continue;
-            
-            int out_v1, out_v2;
-            bool controlIsX = (c_v1 == 1 && c_v2 == 1);
-            bool dataIsX = (d_v1 == 1 && d_v2 == 1);
 
-            if (controlIsX || dataIsX) {
-                // Output is X
-                out_v1 = 1;
-                out_v2 = 1;
-            } else if (c_v1 == 0 && c_v2 == 1) {
-                // Control is 1, output follows data
-                out_v1 = d_v1;
-                out_v2 = d_v2;
-            } else {
-                // Output is Z
-                out_v1 = 1;
-                out_v2 = 0;
+            if ((c_v1 == 1 && c_v2 == 1) || (d_v1 == 1 && d_v2 == 1)) {
+                continue;
             }
 
-            // Construct the clause
+            int out_v1, out_v2;
+            bool validOutput = true;
+
+            if (c_v1 == 1 && c_v2 == 0) { // Control is Z
+                // Output is Z
+                out_v1 = 1; out_v2 = 0;
+            } else if ( (c_v1 == 0 && c_v2 == 0) || (c_v1 == 0 && c_v2 == 1) ) { // Control is 0 or 1
+                if (d_v1 == 1 && d_v2 == 0) { // Data is Z
+                    // Output is Z
+                    out_v1 = 1; out_v2 = 0;
+                } else if ((d_v1 == 0 && d_v2 == 0) || (d_v1 == 0 && d_v2 == 1)) {
+                    // Output depends on specific control and data values
+                    if (c_v1 == 0 && c_v2 == 0) { // Control is 0
+                        // Output is Z
+                        out_v1 = 1; out_v2 = 0;
+                    } else if (c_v1 == 0 && c_v2 == 1) { // Control is 1
+                        // Output is data
+                        out_v1 = d_v1;
+                        out_v2 = d_v2;
+                    } else {
+                        validOutput = false;
+                    }
+                } else {
+                    validOutput = false;
+                }
+            } else {
+                validOutput = false;
+            }
+
+            // Skip invalid or illegal combinations
+            if (!validOutput || (out_v1 == 1 && out_v2 == 1)) {
+                continue;
+            }
+
+            // Create clauses enforcing the output state
             string clause_v1 = to_string(-funcVar) + " " + to_string(-selVar1) + " " + to_string(-selVar2) + " ";
-            clause_v1 += (c_v1 == 1 ? to_string(controlVar_v1) : to_string(-controlVar_v1)) + " ";
-            clause_v1 += (c_v2 == 1 ? to_string(controlVar_v2) : to_string(-controlVar_v2)) + " ";
-            clause_v1 += (d_v1 == 1 ? to_string(dataVar_v1) : to_string(-dataVar_v1)) + " ";
-            clause_v1 += (d_v2 == 1 ? to_string(dataVar_v2) : to_string(-dataVar_v2)) + " ";
-            clause_v1 += (out_v1 == 1 ? to_string(gateOutputVar_v1) : to_string(-gateOutputVar_v1)) + " 0";
+            clause_v1 += (c_v1 ? to_string(controlVar_v1) : to_string(-controlVar_v1)) + " ";
+            clause_v1 += (c_v2 ? to_string(controlVar_v2) : to_string(-controlVar_v2)) + " ";
+            clause_v1 += (d_v1 ? to_string(dataVar_v1) : to_string(-dataVar_v1)) + " ";
+            clause_v1 += (d_v2 ? to_string(dataVar_v2) : to_string(-dataVar_v2)) + " ";
+            clause_v1 += (out_v1 ? to_string(gateOutputVar_v1) : to_string(-gateOutputVar_v1)) + " 0";
             clauses.push_back(clause_v1);
 
             string clause_v2 = to_string(-funcVar) + " " + to_string(-selVar1) + " " + to_string(-selVar2) + " ";
-            clause_v2 += (c_v1 == 1 ? to_string(controlVar_v1) : to_string(-controlVar_v1)) + " ";
-            clause_v2 += (c_v2 == 1 ? to_string(controlVar_v2) : to_string(-controlVar_v2)) + " ";
-            clause_v2 += (d_v1 == 1 ? to_string(dataVar_v1) : to_string(-dataVar_v1)) + " ";
-            clause_v2 += (d_v2 == 1 ? to_string(dataVar_v2) : to_string(-dataVar_v2)) + " ";
-            clause_v2 += (out_v2 == 1 ? to_string(gateOutputVar_v2) : to_string(-gateOutputVar_v2)) + " 0";
+            clause_v2 += (c_v1 ? to_string(controlVar_v1) : to_string(-controlVar_v1)) + " ";
+            clause_v2 += (c_v2 ? to_string(controlVar_v2) : to_string(-controlVar_v2)) + " ";
+            clause_v2 += (d_v1 ? to_string(dataVar_v1) : to_string(-dataVar_v1)) + " ";
+            clause_v2 += (d_v2 ? to_string(dataVar_v2) : to_string(-dataVar_v2)) + " ";
+            clause_v2 += (out_v2 ? to_string(gateOutputVar_v2) : to_string(-gateOutputVar_v2)) + " 0";
             clauses.push_back(clause_v2);
         }
     }
+
     return clauses.size() - initialClauseCount;
 }
+
+
+
 
 int addJOINCompatibilityConstraints(
     int funcVar, 
@@ -223,11 +254,12 @@ int addJOINCompatibilityConstraints(
     vector<string>& clauses
 ) {
     int initialClauseCount = clauses.size();
+
+    // Possible states: {Z, 0, 1}
     vector<tuple<int, int>> possibleStates = {
-        {1, 0}, // Z 
+        {1, 0}, // Z
         {0, 0}, // 0
-        {0, 1}, // 1
-        {1, 1}  // X 
+        {0, 1}  // 1
     };
 
     // For each combination of input states
@@ -239,67 +271,74 @@ int addJOINCompatibilityConstraints(
             int in2_v1 = get<0>(inputState2);
             int in2_v2 = get<1>(inputState2);
 
-            // Determine the output state based on the JOIN truth table
+            // Skip illegal input combinations
+            if ((in1_v1 == 1 && in1_v2 == 1) || (in2_v1 == 1 && in2_v2 == 1)) {
+                continue;
+            }
+
+            // Determine the output state based on the truth table
             int out_v1, out_v2;
+            bool validOutput = true;
 
-            bool in1_is_X = (in1_v1 == 1 && in1_v2 == 1);
-            bool in2_is_X = (in2_v1 == 1 && in2_v2 == 1);
-
-            if (in1_is_X || in2_is_X) {
-                // Output is X
-                out_v1 = 1;
-                out_v2 = 1;
-            } else if (in1_v1 == 1 && in1_v2 == 0 && in2_v1 == 1 && in2_v2 == 0) {
-                // Both inputs are Z, output is Z
-                out_v1 = 1;
-                out_v2 = 0;
-            } else if (in1_v1 == 1 && in1_v2 == 0) {
-                // in1 is Z, output is in2
-                out_v1 = in2_v1;
-                out_v2 = in2_v2;
-            } else if (in2_v1 == 1 && in2_v2 == 0) {
-                // in2 is Z, output is in1
-                out_v1 = in1_v1;
-                out_v2 = in1_v2;
-            } else if ((in1_v1 == 0 && in1_v2 == 0) && (in2_v1 == 0 && in2_v2 == 0)) {
-                // Both inputs are 0, output is 0
-                out_v1 = 0;
-                out_v2 = 0;
-            } else if ((in1_v1 == 0 && in1_v2 == 1) && (in2_v1 == 0 && in2_v2 == 1)) {
-                // Both inputs are 1, output is 1
-                out_v1 = 0;
-                out_v2 = 1;
-            } else if (((in1_v1 == 0 && in1_v2 == 0) && (in2_v1 == 0 && in2_v2 == 1)) ||
-                       ((in1_v1 == 0 && in1_v2 == 1) && (in2_v1 == 0 && in2_v2 == 0))) {
-                // One input is 0, the other is 1, output is X
-                out_v1 = 1;
-                out_v2 = 1;
+            if (in1_v1 == 1 && in1_v2 == 0) { // in1 is Z
+                if (in2_v1 == 1 && in2_v2 == 0) { // in2 is Z
+                    out_v1 = 1; out_v2 = 0; // Output is Z
+                } else if ((in2_v1 == 0 && in2_v2 == 0) || (in2_v1 == 0 && in2_v2 == 1)) {
+                    // Output is in2
+                    out_v1 = in2_v1;
+                    out_v2 = in2_v2;
+                } else {
+                    validOutput = false;
+                }
+            } else if (in1_v1 == 0 && in1_v2 == 0) { // in1 is 0
+                if (in2_v1 == 1 && in2_v2 == 0) { // in2 is Z
+                    out_v1 = 0; out_v2 = 0; // Output is 0
+                } else if (in2_v1 == 0 && in2_v2 == 0) { // in2 is 0
+                    out_v1 = 0; out_v2 = 0; // Output is 0
+                } else {
+                    // Output is invalid (X)
+                    validOutput = false;
+                }
+            } else if (in1_v1 == 0 && in1_v2 == 1) { // in1 is 1
+                if (in2_v1 == 1 && in2_v2 == 0) { // in2 is Z
+                    out_v1 = 0; out_v2 = 1; // Output is 1
+                } else if (in2_v1 == 0 && in2_v2 == 1) { // in2 is 1
+                    out_v1 = 0; out_v2 = 1; // Output is 1
+                } else {
+                    // Output is invalid (X)
+                    validOutput = false;
+                }
             } else {
-                // Undefined combination, output is X
-                out_v1 = 1;
-                out_v2 = 1;
+                validOutput = false;
+            }
+
+            // Skip invalid or illegal combinations
+            if (!validOutput || (out_v1 == 1 && out_v2 == 1)) {
+                continue;
             }
 
             // Create clauses enforcing the output state
             string clause_v1 = to_string(-funcVar) + " " + to_string(-selVar1) + " " + to_string(-selVar2) + " ";
-            clause_v1 += (in1_v1 == 1 ? to_string(inputVar1_v1) : to_string(-inputVar1_v1)) + " ";
-            clause_v1 += (in1_v2 == 1 ? to_string(inputVar1_v2) : to_string(-inputVar1_v2)) + " ";
-            clause_v1 += (in2_v1 == 1 ? to_string(inputVar2_v1) : to_string(-inputVar2_v1)) + " ";
-            clause_v1 += (in2_v2 == 1 ? to_string(inputVar2_v2) : to_string(-inputVar2_v2)) + " ";
-            clause_v1 += (out_v1 == 1 ? to_string(gateOutputVar_v1) : to_string(-gateOutputVar_v1)) + " 0";
+            clause_v1 += (in1_v1 ? to_string(inputVar1_v1) : to_string(-inputVar1_v1)) + " ";
+            clause_v1 += (in1_v2 ? to_string(inputVar1_v2) : to_string(-inputVar1_v2)) + " ";
+            clause_v1 += (in2_v1 ? to_string(inputVar2_v1) : to_string(-inputVar2_v1)) + " ";
+            clause_v1 += (in2_v2 ? to_string(inputVar2_v2) : to_string(-inputVar2_v2)) + " ";
+            clause_v1 += (out_v1 ? to_string(gateOutputVar_v1) : to_string(-gateOutputVar_v1)) + " 0";
             clauses.push_back(clause_v1);
 
             string clause_v2 = to_string(-funcVar) + " " + to_string(-selVar1) + " " + to_string(-selVar2) + " ";
-            clause_v2 += (in1_v1 == 1 ? to_string(inputVar1_v1) : to_string(-inputVar1_v1)) + " ";
-            clause_v2 += (in1_v2 == 1 ? to_string(inputVar1_v2) : to_string(-inputVar1_v2)) + " ";
-            clause_v2 += (in2_v1 == 1 ? to_string(inputVar2_v1) : to_string(-inputVar2_v1)) + " ";
-            clause_v2 += (in2_v2 == 1 ? to_string(inputVar2_v2) : to_string(-inputVar2_v2)) + " ";
-            clause_v2 += (out_v2 == 1 ? to_string(gateOutputVar_v2) : to_string(-gateOutputVar_v2)) + " 0";
+            clause_v2 += (in1_v1 ? to_string(inputVar1_v1) : to_string(-inputVar1_v1)) + " ";
+            clause_v2 += (in1_v2 ? to_string(inputVar1_v2) : to_string(-inputVar1_v2)) + " ";
+            clause_v2 += (in2_v1 ? to_string(inputVar2_v1) : to_string(-inputVar2_v1)) + " ";
+            clause_v2 += (in2_v2 ? to_string(inputVar2_v2) : to_string(-inputVar2_v2)) + " ";
+            clause_v2 += (out_v2 ? to_string(gateOutputVar_v2) : to_string(-gateOutputVar_v2)) + " 0";
             clauses.push_back(clause_v2);
         }
     }
+
     return clauses.size() - initialClauseCount;
 }
+
 
 
 int addXORCompatibilityConstraints(
@@ -311,11 +350,12 @@ int addXORCompatibilityConstraints(
     vector<string>& clauses
 ) {
     int initialClauseCount = clauses.size();
+
+    // Possible states: {Z, 0, 1}
     vector<tuple<int, int>> possibleStates = {
-        {1, 0}, // Z 
+        {1, 0}, // Z
         {0, 0}, // 0
-        {0, 1}, // 1
-        {1, 1}  // X 
+        {0, 1}  // 1
     };
 
     // For each combination of input states
@@ -327,55 +367,75 @@ int addXORCompatibilityConstraints(
             int in2_v1 = get<0>(inputState2);
             int in2_v2 = get<1>(inputState2);
 
-            // Determine the output state based on the XOR truth table
+            // Skip illegal input combinations
+            if ((in1_v1 == 1 && in1_v2 == 1) || (in2_v1 == 1 && in2_v2 == 1)) {
+                continue;
+            }
+
+            // Determine the output state based on the truth table
             int out_v1, out_v2;
+            bool validOutput = true;
 
-            bool in1_is_X = (in1_v1 == 1 && in1_v2 == 1);
-            bool in2_is_X = (in2_v1 == 1 && in2_v2 == 1);
-            bool in1_is_Z = (in1_v1 == 1 && in1_v2 == 0);
-            bool in2_is_Z = (in2_v1 == 1 && in2_v2 == 0);
-
-            if (in1_is_X || in2_is_X) {
-                // Output is X
-                out_v1 = 1;
-                out_v2 = 1;
-            } else if (in1_is_Z || in2_is_Z) {
-                // Output is Z
-                out_v1 = 1;
-                out_v2 = 0;
-            } else {
-                // Both inputs are 0 or 1, compute standard XOR
-                int val1 = (in1_v1 == 0 && in1_v2 == 0) ? 0 : 1; // Map (0,0)->0, (0,1)->1
-                int val2 = (in2_v1 == 0 && in2_v2 == 0) ? 0 : 1;
-                int xor_result = val1 ^ val2;
-
-                if (xor_result == 0) {
-                    out_v1 = 0;
-                    out_v2 = 0;
+            if (in1_v1 == 1 && in1_v2 == 0) { // in1 is Z
+                if (in2_v1 == 1 && in2_v2 == 0) { // in2 is Z
+                    // Z ⊕ Z = Z
+                    out_v1 = 1; out_v2 = 0;
+                } else if ((in2_v1 == 0 && in2_v2 == 0) || (in2_v1 == 0 && in2_v2 == 1)) {
+                    // Z ⊕ 0 = Z ⊕ 1 = Z
+                    out_v1 = 1; out_v2 = 0;
                 } else {
-                    out_v1 = 0;
-                    out_v2 = 1;
+                    validOutput = false;
                 }
+            } else if ((in1_v1 == 0 && in1_v2 == 0) || (in1_v1 == 0 && in1_v2 == 1)) { // in1 is 0 or 1
+                if (in2_v1 == 1 && in2_v2 == 0) { // in2 is Z
+                    // 0 ⊕ Z = Z, 1 ⊕ Z = Z
+                    out_v1 = 1; out_v2 = 0;
+                } else if ((in2_v1 == 0 && in2_v2 == 0) || (in2_v1 == 0 && in2_v2 == 1)) { // in2 is 0 or 1
+                    // Compute standard XOR
+                    if ( (in1_v1 == in2_v1) && (in1_v2 == in2_v2) ) {
+                        // Same inputs, output is 0
+                        out_v1 = 0; out_v2 = 0;
+                    } else {
+                        // Different inputs, output is 1
+                        out_v1 = 0; out_v2 = 1;
+                    }
+                } else {
+                    validOutput = false;
+                }
+            } else {
+                validOutput = false;
+            }
+
+            // Skip invalid or illegal combinations
+            if (!validOutput || (out_v1 == 1 && out_v2 == 1)) {
+                continue;
             }
 
             // Create clauses enforcing the output state
-            string clause_v1 = to_string(-funcVar) + " " + to_string(-selVar1) + " " + to_string(-selVar2) + " ";
-            clause_v1 += (in1_v1 == 1 ? to_string(inputVar1_v1) : to_string(-inputVar1_v1)) + " ";
-            clause_v1 += (in1_v2 == 1 ? to_string(inputVar1_v2) : to_string(-inputVar1_v2)) + " ";
-            clause_v1 += (in2_v1 == 1 ? to_string(inputVar2_v1) : to_string(-inputVar2_v1)) + " ";
-            clause_v1 += (in2_v2 == 1 ? to_string(inputVar2_v2) : to_string(-inputVar2_v2)) + " ";
-            clause_v1 += (out_v1 == 1 ? to_string(gateOutputVar_v1) : to_string(-gateOutputVar_v1)) + " 0";
+            string clause_v1 = "";
+            clause_v1 += to_string(-funcVar) + " ";
+            clause_v1 += to_string(-selVar1) + " ";
+            clause_v1 += to_string(-selVar2) + " ";
+            clause_v1 += (in1_v1 ? to_string(inputVar1_v1) : to_string(-inputVar1_v1)) + " ";
+            clause_v1 += (in1_v2 ? to_string(inputVar1_v2) : to_string(-inputVar1_v2)) + " ";
+            clause_v1 += (in2_v1 ? to_string(inputVar2_v1) : to_string(-inputVar2_v1)) + " ";
+            clause_v1 += (in2_v2 ? to_string(inputVar2_v2) : to_string(-inputVar2_v2)) + " ";
+            clause_v1 += (out_v1 ? to_string(gateOutputVar_v1) : to_string(-gateOutputVar_v1)) + " 0";
             clauses.push_back(clause_v1);
 
-            string clause_v2 = to_string(-funcVar) + " " + to_string(-selVar1) + " " + to_string(-selVar2) + " ";
-            clause_v2 += (in1_v1 == 1 ? to_string(inputVar1_v1) : to_string(-inputVar1_v1)) + " ";
-            clause_v2 += (in1_v2 == 1 ? to_string(inputVar1_v2) : to_string(-inputVar1_v2)) + " ";
-            clause_v2 += (in2_v1 == 1 ? to_string(inputVar2_v1) : to_string(-inputVar2_v1)) + " ";
-            clause_v2 += (in2_v2 == 1 ? to_string(inputVar2_v2) : to_string(-inputVar2_v2)) + " ";
-            clause_v2 += (out_v2 == 1 ? to_string(gateOutputVar_v2) : to_string(-gateOutputVar_v2)) + " 0";
+            string clause_v2 = "";
+            clause_v2 += to_string(-funcVar) + " ";
+            clause_v2 += to_string(-selVar1) + " ";
+            clause_v2 += to_string(-selVar2) + " ";
+            clause_v2 += (in1_v1 ? to_string(inputVar1_v1) : to_string(-inputVar1_v1)) + " ";
+            clause_v2 += (in1_v2 ? to_string(inputVar1_v2) : to_string(-inputVar1_v2)) + " ";
+            clause_v2 += (in2_v1 ? to_string(inputVar2_v1) : to_string(-inputVar2_v1)) + " ";
+            clause_v2 += (in2_v2 ? to_string(inputVar2_v2) : to_string(-inputVar2_v2)) + " ";
+            clause_v2 += (out_v2 ? to_string(gateOutputVar_v2) : to_string(-gateOutputVar_v2)) + " 0";
             clauses.push_back(clause_v2);
         }
     }
+
     return clauses.size() - initialClauseCount;
 }
 
@@ -410,6 +470,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
     int numGateConsistencyConstraints = 0;
     int numAcyclicityConstraints = 0;
     int numSymmetryBreakingConstraints = 0;
+    int numEquivalenceConstraints = 0;
 
     auto getNumInputs = [](GateType type) -> int {
         switch (type) {
@@ -425,18 +486,26 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
         }
     };
 
-    // Collect wire IDs for primary inputs
     vector<int> possibleInputs;
+    vector<int> inputVars_v1;
+    vector<int> inputVars_v2;
     for (int i = 0; i < n; ++i) {
         int wireID = subcircuit.inputWires[i];
         possibleInputs.push_back(wireID);
         WireVars vars;
         vars.v1 = varCounter++;
-        inputVars.insert(vars.v1);
         vars.v2 = varCounter++;
+        inputVars.insert(vars.v1);
         inputVars.insert(vars.v2);
         wireVarMap[wireID] = vars;
+        inputVars_v1.push_back(vars.v1);
+        inputVars_v2.push_back(vars.v2);
     }
+
+    // Subcircuit outputs
+    vector<int> subcircuitOutputWires = subcircuit.outputWires;
+    vector<int> subcircuitOutputVars_v1;
+    vector<int> subcircuitOutputVars_v2;
 
     // Gate outputs
     for (int i = 0; i < numGates; ++i) {
@@ -449,9 +518,19 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
             gateValueVars.insert(vars.v2);
             wireVarMap[gateOutputWireID] = vars;
         }
-        // Add gate output wire to possible inputs for subsequent gates
         possibleInputs.push_back(gateOutputWireID);
+
+        if (find(subcircuitOutputWires.begin(), subcircuitOutputWires.end(), gateOutputWireID) != subcircuitOutputWires.end()) {
+            subcircuitOutputVars_v1.push_back(wireVarMap[gateOutputWireID].v1);
+            subcircuitOutputVars_v2.push_back(wireVarMap[gateOutputWireID].v2);
+        }
     }
+
+    cout << "Subcircuit output wires: ";
+    for (int wireID : subcircuit.outputWires) {
+        cout << wireID << " ";
+    }
+    cout << endl;
 
     // Selection variables (s_{it})
     int maxNumInputPins = 2; // Maximum number of inputs any gate can have
@@ -460,6 +539,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
         if (numPins == 0) {
             continue; 
         }
+        // For each input pin
         for (int inputPin = 0; inputPin < numPins; ++inputPin) {
             vector<int> gateSelectionVars;
             for (int t = 0; t < possibleInputs.size(); ++t) {
@@ -479,24 +559,44 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
         }
     }
 
-    // Output variables (o_{tj})
+    vector<int> origOutputVars_v1; // Outputs of the original circuit
+    vector<int> origOutputVars_v2;
+    vector<int> modOutputVars_v1;  // Outputs of the modified circuit
+    vector<int> modOutputVars_v2;
+
     for (int i = 0; i < numOutputs; ++i) {
         int outputWireID = subcircuit.outputWires[i];
-        outputVars.insert(wireVarMap[outputWireID].v1);
-        outputVars.insert(wireVarMap[outputWireID].v2);
-    }
+        int origOutputVar_v1 = varCounter++;
+        int origOutputVar_v2 = varCounter++;
+        outputVars.insert(origOutputVar_v1);
+        outputVars.insert(origOutputVar_v2);
+        origOutputVars_v1.push_back(origOutputVar_v1);
+        origOutputVars_v2.push_back(origOutputVar_v2);
 
+        // Modified outputs (after replacing subcircuit)
+        int modOutputVar_v1 = wireVarMap[outputWireID].v1;
+        int modOutputVar_v2 = wireVarMap[outputWireID].v2;
+        modOutputVars_v1.push_back(modOutputVar_v1);
+        modOutputVars_v2.push_back(modOutputVar_v2);
+    }
 
     vector<string> clauses;
 
     // 1. No wire in the illegal state
-    // for (const auto& entry : wireVarMap) {
-    //     int v1 = entry.second.v1;
-    //     int v2 = entry.second.v2;
-    //     // Clause: -v1 ∨ -v2 (at least one of v1 or v2 is 0)
-    //     clauses.push_back(to_string(-v1) + " " + to_string(-v2) + " 0");
-    //     numNoIllegalStateClauses++;
-    // }
+    for (const auto& entry : wireVarMap) {
+        int wireID = entry.first;
+        if (inputVars.find(entry.second.v1) != inputVars.end()) {
+            continue;
+        }
+
+        int v1 = entry.second.v1;
+        int v2 = entry.second.v2;
+        if (v1 <= 0 || v2 <= 0) {
+            continue;
+        }
+        clauses.push_back(to_string(-v1) + " " + to_string(-v2) + " 0");
+        numNoIllegalStateClauses++;
+    }
 
     // 2. Exactly one selection variable is true
     for (int i = 0; i < numGates; ++i) {
@@ -632,10 +732,21 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
         }
     }
 
+
+    numEquivalenceConstraints += addEquivalenceConstraints(
+        inputVars_v1,
+        inputVars_v2,
+        origOutputVars_v1,
+        origOutputVars_v2,
+        modOutputVars_v1,
+        modOutputVars_v2,
+        clauses
+    );
+
     // Output the clauses
     int totalClauses = clauses.size();
 
-    outfile << "p cnf " << varCounter << " " << totalClauses << endl;
+    outfile << "p cnf " << varCounter - 1 << " " << totalClauses << endl;
 
     // E S, F, O
     outfile << "e ";
@@ -668,15 +779,14 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
     // Output counts
     cout << "Subcircuit has " << n << " input wires and " << numGates << " gates." << endl;
     cout << "Initial possibleInputs size: " << possibleInputs.size() << endl;
-    // cout << "Number of 'no illegal state' clauses: " << numNoIllegalStateClauses << endl;
+    cout << "Number of 'no illegal state' clauses: " << numNoIllegalStateClauses << endl;
     cout << "Number of 'selection variable' constraints: " << numSelectionConstraints << endl;
     cout << "Number of 'function variable' constraints: " << numFunctionConstraints << endl;
     cout << "Number of 'gate consistency' constraints: " << numGateConsistencyConstraints << endl;
     cout << "Number of 'acyclicity' constraints: " << numAcyclicityConstraints << endl;
     cout << "Number of 'symmetry breaking' constraints: " << numSymmetryBreakingConstraints << endl;
+    cout << "Number of 'equivalence' constraints: " << numEquivalenceConstraints << endl;
     cout << "Total clauses: " << totalClauses << endl;
-
-    // Update the header line with the correct number of clauses
 
     outfile.close();
 }

@@ -18,8 +18,8 @@ struct Circuit {
 };
 
 
+int getGateCount(const Circuit& circuit);
 Circuit readCircuit(const std::string& filename);
-std::vector<int> topologicalSort(const Circuit& circuit);
 std::vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize);
 
 extern std::unordered_map<std::string, GateType> gateMap;

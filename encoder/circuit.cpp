@@ -7,7 +7,6 @@
 
 using namespace std;
 
-// Initialize the gateMap
 unordered_map<string, GateType> gateMap = {
     {"JOIN", JOIN},
     {"BUFFER", BUFFER},
@@ -112,7 +111,6 @@ Circuit readCircuit(const string& filename) {
         }
     }
 
-    // Output wires are the last totalOutputWires wires
     for (int i = numWires - totalOutputWires; i < numWires; ++i) {
         circuit.outputWires.push_back(i);
     }
@@ -192,10 +190,15 @@ vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize) {
             }
 
             // Determine output wires
+           unordered_set<int> circuitOutputWires(circuit.outputWires.begin(), circuit.outputWires.end());
+
+            // Determine output wires
             for (int gateIdx : subcircuitGateIndices) {
                 const Gate& gate = circuit.gates[gateIdx];
                 int outputWire = gate.output;
                 bool isOutputWire = false;
+
+                // Check if the output wire is used by any gate outside the subcircuit
                 for (size_t consumerGateIdx = 0; consumerGateIdx < circuit.gates.size(); ++consumerGateIdx) {
                     const Gate& consumerGate = circuit.gates[consumerGateIdx];
                     if ((consumerGate.input1 == outputWire || consumerGate.input2 == outputWire) &&
@@ -204,6 +207,12 @@ vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize) {
                         break;
                     }
                 }
+
+                // **Additional check: Is the output wire one of the circuit's overall outputs?**
+                if (circuitOutputWires.count(outputWire) > 0) {
+                    isOutputWire = true;
+                }
+
                 if (isOutputWire) {
                     subcircuitOutputWires.insert(outputWire);
                 }
@@ -236,4 +245,8 @@ vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize) {
     }
 
     return subcircuits;
+}
+
+int getGateCount(const Circuit& circuit) {
+    return circuit.gates.size();
 }
