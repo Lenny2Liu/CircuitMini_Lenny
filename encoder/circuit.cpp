@@ -67,6 +67,15 @@ Circuit readCircuit(const string& filename) {
     // Read gates
     while (getline(infile, line)) {
         if (line.empty()) continue;
+        if (line.substr(0, 11) == "OutputWires") {
+            istringstream oss(line.substr(11)); 
+            int wire;
+            while (oss >> wire) {
+                circuit.outputWires.push_back(wire);
+            }
+            continue;
+        }
+
         istringstream gateStream(line);
         vector<string> tokens;
         string token;
@@ -111,19 +120,43 @@ Circuit readCircuit(const string& filename) {
         }
     }
 
-    for (int i = numWires - totalOutputWires; i < numWires; ++i) {
-        circuit.outputWires.push_back(i);
+    // If output wires were not specified in the file, assign them
+    if (circuit.outputWires.empty()) {
+        cerr << "Output wires were not specified in the file. " << endl;
     }
 
     infile.close();
     return circuit;
 }
-
 vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize) {
     vector<Circuit> subcircuits;
+    if (getGateCount(circuit) <= windowSize) {
+        subcircuits.push_back(circuit);
+        return subcircuits;
+    }
+
+    // First identify the original constant gates wire IDs
+    int const_one_output = -1;
+    int const_zero_output = -1;
+    Gate original_const_one;
+    Gate original_const_zero;
+    
+    for (const Gate& gate : circuit.gates) {
+        if (gate.type == CONST_ONE) {
+            const_one_output = gate.output;
+            original_const_one = gate;
+        } else if (gate.type == CONST_ZERO) {
+            const_zero_output = gate.output;
+            original_const_zero = gate;
+        }
+    }
 
     unordered_map<int, vector<int>> gateGraph; // Adjacency list
     for (size_t idx = 0; idx < circuit.gates.size(); ++idx) {
+        if (circuit.gates[idx].type == CONST_ONE || circuit.gates[idx].type == CONST_ZERO) {
+            continue;
+        }
+        
         const Gate& gate = circuit.gates[idx];
         int outputWire = gate.output;
         for (int consumerGateIdx = 0; consumerGateIdx < circuit.gates.size(); ++consumerGateIdx) {
@@ -145,9 +178,11 @@ vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize) {
 
     unordered_set<int> visited;
     for (size_t idx = 0; idx < circuit.gates.size(); ++idx) {
-        if (visited.count(idx)) {
+        if (visited.count(idx) || circuit.gates[idx].type == CONST_ONE || 
+            circuit.gates[idx].type == CONST_ZERO) {
             continue;
         }
+        
         vector<int> component;
         stack<int> dfsStack;
         dfsStack.push(idx);
@@ -164,41 +199,77 @@ vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize) {
                 }
             }
         }
+        
         size_t startIdx = 0;
         while (startIdx < component.size()) {
-            size_t endIdx = min(startIdx + windowSize, component.size());
+            size_t endIdx = min(startIdx + windowSize - 2, component.size());
             vector<int> subcircuitGateIndices(component.begin() + startIdx, component.begin() + endIdx);
 
-            // Identify input and output wires for the subcircuit
+            Circuit subcircuit;
+
+            // Check if any gate in this subcircuit uses constants
+            bool needs_constants = false;
+            for (int gateIdx : subcircuitGateIndices) {
+                const Gate& gate = circuit.gates[gateIdx];
+                if (gate.input1 == const_one_output || gate.input1 == const_zero_output ||
+                    gate.input2 == const_one_output || gate.input2 == const_zero_output) {
+                    needs_constants = true;
+                    break;
+                }
+            }
+
+            // Always add constants to the subcircuit
+            subcircuit.gates.push_back(original_const_one);
+            subcircuit.gates.push_back(original_const_zero);
+
+            // Add the non-constant gates
+            for (int gateIdx : subcircuitGateIndices) {
+                const Gate& gate = circuit.gates[gateIdx];
+                if (gate.type != CONST_ONE && gate.type != CONST_ZERO) {
+                    subcircuit.gates.push_back(gate);
+                }
+            }
+
             unordered_set<int> subcircuitGates(subcircuitGateIndices.begin(), subcircuitGateIndices.end());
             unordered_set<int> subcircuitWires;
+            
+            // Add constant wire outputs
+            subcircuitWires.insert(const_one_output);
+            subcircuitWires.insert(const_zero_output);
+
             for (int gateIdx : subcircuitGateIndices) {
                 subcircuitWires.insert(circuit.gates[gateIdx].output);
             }
 
-            unordered_set<int> subcircuitInputWires;
+           unordered_set<int> subcircuitInputWires;
             unordered_set<int> subcircuitOutputWires;
             for (int gateIdx : subcircuitGateIndices) {
                 const Gate& gate = circuit.gates[gateIdx];
                 for (int inputWire : {gate.input1, gate.input2}) {
                     if (inputWire >= 0) {
-                        if (!subcircuitWires.count(inputWire)) {
+                        if (!subcircuitWires.count(inputWire) && 
+                            inputWire != const_one_output && 
+                            inputWire != const_zero_output) {
                             subcircuitInputWires.insert(inputWire);
                         }
                     }
                 }
             }
 
-            // Determine output wires
-           unordered_set<int> circuitOutputWires(circuit.outputWires.begin(), circuit.outputWires.end());
+            unordered_set<int> circuitOutputWires(circuit.outputWires.begin(), circuit.outputWires.end());
 
-            // Determine output wires
             for (int gateIdx : subcircuitGateIndices) {
                 const Gate& gate = circuit.gates[gateIdx];
                 int outputWire = gate.output;
+                
+                // Skip if this gate is a constant gate or its wire comes from a constant gate
+                if (gate.type == CONST_ONE || gate.type == CONST_ZERO ||
+                    outputWire == const_one_output || outputWire == const_zero_output) {
+                    continue;
+                }
+
                 bool isOutputWire = false;
 
-                // Check if the output wire is used by any gate outside the subcircuit
                 for (size_t consumerGateIdx = 0; consumerGateIdx < circuit.gates.size(); ++consumerGateIdx) {
                     const Gate& consumerGate = circuit.gates[consumerGateIdx];
                     if ((consumerGate.input1 == outputWire || consumerGate.input2 == outputWire) &&
@@ -208,7 +279,6 @@ vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize) {
                     }
                 }
 
-                // **Additional check: Is the output wire one of the circuit's overall outputs?**
                 if (circuitOutputWires.count(outputWire) > 0) {
                     isOutputWire = true;
                 }
@@ -218,15 +288,8 @@ vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize) {
                 }
             }
 
-            // Create the subcircuit
-            Circuit subcircuit;
             subcircuit.numInputs = subcircuitInputWires.size();
             subcircuit.numOutputs = subcircuitOutputWires.size();
-
-            for (int gateIdx : subcircuitGateIndices) {
-                subcircuit.gates.push_back(circuit.gates[gateIdx]);
-            }
-
             subcircuit.inputWires.assign(subcircuitInputWires.begin(), subcircuitInputWires.end());
             subcircuit.outputWires.assign(subcircuitOutputWires.begin(), subcircuitOutputWires.end());
 
@@ -246,6 +309,7 @@ vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize) {
 
     return subcircuits;
 }
+
 
 int getGateCount(const Circuit& circuit) {
     return circuit.gates.size();

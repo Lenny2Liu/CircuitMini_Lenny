@@ -3,6 +3,15 @@
 #include <sstream>
 #include <vector>
 #include <string>
+#include <unordered_map>
+
+// Hash function for pair<int, int> if needed in future
+struct pair_hash {
+    template <class T1, class T2>
+    std::size_t operator () (const std::pair<T1,T2> &pair) const {
+        return std::hash<T1>()(pair.first) ^ std::hash<T2>()(pair.second);
+    }
+};
 
 struct Gate {
     int numInputs;
@@ -58,7 +67,7 @@ bool readCircuit(const std::string& filename, int& numGates, int& numWires,
     }
 
     std::string line;
-    std::getline(circuitFile, line);
+    std::getline(circuitFile, line); // Consume the remaining newline
 
     for (int i = 0; i < numGates; ++i) {
         std::getline(circuitFile, line);
@@ -96,16 +105,62 @@ bool readCircuit(const std::string& filename, int& numGates, int& numWires,
 }
 
 bool transformCircuit(const std::vector<Gate>& gates, int numWires,
-                      std::vector<TriStateGate>& triStateGates, int& nextWireId) {
+                      std::vector<TriStateGate>& triStateGates, int& nextWireId,
+                      const std::vector<int>& originalOutputWires,
+                      std::vector<int>& transformedOutputWires) {
     nextWireId = numWires;
+
+    // Predefine constant wires to reuse across the circuit
+    int const_one_wire = nextWireId++;
+    int const_zero_wire = nextWireId++;
+
+    // Create CONST_ONE and CONST_ZERO gates once
+    TriStateGate constOneGate;
+    constOneGate.type = "CONST_ONE";
+    constOneGate.inputWires = {}; // No inputs
+    constOneGate.outputWire = const_one_wire;
+    triStateGates.push_back(constOneGate);
+
+    TriStateGate constZeroGate;
+    constZeroGate.type = "CONST_ZERO";
+    constZeroGate.inputWires = {}; // No inputs
+    constZeroGate.outputWire = const_zero_wire;
+    triStateGates.push_back(constZeroGate);
+
+    // Map to track wire IDs from the original circuit to the transformed circuit
+    std::unordered_map<int, int> wireMapping;
+    for (int i = 0; i < numWires; ++i) {
+        wireMapping[i] = i; // Initialize mapping (assuming input wires remain the same)
+    }
 
     for (size_t idx = 0; idx < gates.size(); ++idx) {
         const Gate& gate = gates[idx];
+
+        // Map input wires using wireMapping
+        std::vector<int> mappedInputWires;
+        for (int wire : gate.inputWires) {
+            if (wireMapping.find(wire) == wireMapping.end()) {
+                // Wire not yet mapped, use the same wire ID
+                wireMapping[wire] = wire;
+            }
+            mappedInputWires.push_back(wireMapping[wire]);
+        }
+
+        // Map output wires
+        std::vector<int> mappedOutputWires;
+        for (int wire : gate.outputWires) {
+            if (wireMapping.find(wire) == wireMapping.end()) {
+                // Assign new wire ID for output wires
+                wireMapping[wire] = wire;
+            }
+            mappedOutputWires.push_back(wireMapping[wire]);
+        }
+
         if (gate.type == "XOR") {
             TriStateGate tsGate;
             tsGate.type = "XOR";
-            tsGate.inputWires = gate.inputWires;
-            tsGate.outputWire = gate.outputWires[0];
+            tsGate.inputWires = mappedInputWires;
+            tsGate.outputWire = mappedOutputWires[0];
             triStateGates.push_back(tsGate);
         }
         else if (gate.type == "AND") {
@@ -113,20 +168,13 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
                 std::cerr << "AND gate with incorrect number of inputs/outputs." << std::endl;
                 return false;
             }
-            int x = gate.inputWires[0];
-            int y = gate.inputWires[1];
-            int output = gate.outputWires[0];
+            int x = mappedInputWires[0];
+            int y = mappedInputWires[1];
+            int output = mappedOutputWires[0];
 
             int not_y_wire = nextWireId++;
-            int const_one_wire = nextWireId++;
-            int const_zero_wire = nextWireId++;
             int buffer1_output = nextWireId++;
             int buffer0_output = nextWireId++;
-
-            TriStateGate constOneGate;
-            constOneGate.type = "CONST_ONE";
-            constOneGate.outputWire = const_one_wire;
-            triStateGates.push_back(constOneGate);
 
             TriStateGate xorGate;
             xorGate.type = "XOR";
@@ -134,11 +182,6 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
             xorGate.inputWires.push_back(const_one_wire);
             xorGate.outputWire = not_y_wire;
             triStateGates.push_back(xorGate);
-
-            TriStateGate constZeroGate;
-            constZeroGate.type = "CONST_ZERO";
-            constZeroGate.outputWire = const_zero_wire;
-            triStateGates.push_back(constZeroGate);
 
             TriStateGate buffer1Gate;
             buffer1Gate.type = "BUFFER";
@@ -166,19 +209,14 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
                 std::cerr << "INV gate with incorrect number of inputs/outputs." << std::endl;
                 return false;
             }
-            int a = gate.inputWires[0];
-            int constOneWire = nextWireId++;
-
-            TriStateGate constGate;
-            constGate.type = "CONST_ONE";
-            constGate.outputWire = constOneWire;
-            triStateGates.push_back(constGate);
+            int a = mappedInputWires[0];
+            int output = mappedOutputWires[0];
 
             TriStateGate xorGate;
             xorGate.type = "XOR";
             xorGate.inputWires.push_back(a);
-            xorGate.inputWires.push_back(constOneWire);
-            xorGate.outputWire = gate.outputWires[0];
+            xorGate.inputWires.push_back(const_one_wire);
+            xorGate.outputWire = output;
             triStateGates.push_back(xorGate);
         }
         else if (gate.type == "EQ" || gate.type == "EQW") {
@@ -186,18 +224,14 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
                 std::cerr << "EQ/EQW gate with incorrect number of inputs/outputs." << std::endl;
                 return false;
             }
-            int constOneWire = nextWireId++;
-
-            TriStateGate constGate;
-            constGate.type = "CONST_ONE";
-            constGate.outputWire = constOneWire;
-            triStateGates.push_back(constGate);
+            int a = mappedInputWires[0];
+            int output = mappedOutputWires[0];
 
             TriStateGate bufferGate;
             bufferGate.type = "BUFFER";
-            bufferGate.inputWires.push_back(gate.inputWires[0]);
-            bufferGate.inputWires.push_back(constOneWire);
-            bufferGate.outputWire = gate.outputWires[0];
+            bufferGate.inputWires.push_back(a);
+            bufferGate.inputWires.push_back(const_one_wire);
+            bufferGate.outputWire = output;
             triStateGates.push_back(bufferGate);
         }
         else if (gate.type == "MAND") {
@@ -207,20 +241,13 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
             }
             int n = gate.numInputs / 2;
             for (int i = 0; i < n; ++i) {
-                int x = gate.inputWires[i];
-                int y = gate.inputWires[i + n];
-                int output = gate.outputWires[i];
+                int x = mappedInputWires[i];
+                int y = mappedInputWires[i + n];
+                int output = mappedOutputWires[i];
 
                 int not_y_wire = nextWireId++;
-                int const_one_wire = nextWireId++;
-                int const_zero_wire = nextWireId++;
                 int buffer1_output = nextWireId++;
                 int buffer0_output = nextWireId++;
-
-                TriStateGate constOneGate;
-                constOneGate.type = "CONST_ONE";
-                constOneGate.outputWire = const_one_wire;
-                triStateGates.push_back(constOneGate);
 
                 TriStateGate xorGate;
                 xorGate.type = "XOR";
@@ -228,11 +255,6 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
                 xorGate.inputWires.push_back(const_one_wire);
                 xorGate.outputWire = not_y_wire;
                 triStateGates.push_back(xorGate);
-
-                TriStateGate constZeroGate;
-                constZeroGate.type = "CONST_ZERO";
-                constZeroGate.outputWire = const_zero_wire;
-                triStateGates.push_back(constZeroGate);
 
                 TriStateGate buffer1Gate;
                 buffer1Gate.type = "BUFFER";
@@ -262,13 +284,25 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
         }
     }
 
+    // Collect transformed output wires
+    for (int originalOutputWire : originalOutputWires) {
+        if (wireMapping.find(originalOutputWire) != wireMapping.end()) {
+            transformedOutputWires.push_back(wireMapping[originalOutputWire]);
+        } else {
+            std::cerr << "Original output wire " << originalOutputWire << " not found in mapping." << std::endl;
+            return false;
+        }
+    }
+
     return true;
 }
 
+// Function to output the transformed circuit to a file
 void outputCircuit(const std::string& outputFilename, int totalTriStateGates, int totalTriStateWires,
                    int niv, const std::vector<int>& inputWireCounts,
                    int nov, const std::vector<int>& outputWireCounts,
-                   const std::vector<TriStateGate>& triStateGates) {
+                   const std::vector<TriStateGate>& triStateGates,
+                   const std::vector<int>& transformedOutputWires) {
     std::ofstream outFile(outputFilename);
     if (!outFile) {
         std::cerr << "Failed to open output file: " << outputFilename << std::endl;
@@ -288,29 +322,26 @@ void outputCircuit(const std::string& outputFilename, int totalTriStateGates, in
     outFile << std::endl;
 
     for (const TriStateGate& tsGate : triStateGates) {
-        if (tsGate.type == "XOR") {
-            outFile << "2 1 " << tsGate.inputWires[0] << " " << tsGate.inputWires[1]
-                    << " " << tsGate.outputWire << " XOR" << std::endl;
+        if (tsGate.type == "XOR" || tsGate.type == "JOIN" || tsGate.type == "BUFFER") {
+            int numInputs = tsGate.inputWires.size();
+            int numOutputs = 1;
+            outFile << numInputs << " " << numOutputs << " ";
+            for (int wire : tsGate.inputWires) {
+                outFile << wire << " ";
+            }
+            outFile << tsGate.outputWire << " " << tsGate.type << std::endl;
         }
-        else if (tsGate.type == "JOIN") {
-            outFile << "2 1 " << tsGate.inputWires[0] << " " << tsGate.inputWires[1]
-                    << " " << tsGate.outputWire << " JOIN" << std::endl;
-        }
-        else if (tsGate.type == "BUFFER") {
-            outFile << "2 1 " << tsGate.inputWires[0] << " " << tsGate.inputWires[1]
-                    << " " << tsGate.outputWire << " BUFFER" << std::endl;
-        }
-        else if (tsGate.type == "CONST_ONE") {
-            outFile << "0 1 " << tsGate.outputWire << " CONST_ONE" << std::endl;
-        }
-        else if (tsGate.type == "CONST_ZERO") {
-            outFile << "0 1 " << tsGate.outputWire << " CONST_ZERO" << std::endl;
+        else if (tsGate.type == "CONST_ONE" || tsGate.type == "CONST_ZERO") {
+            int numInputs = 0;
+            int numOutputs = 1;
+            outFile << numInputs << " " << numOutputs << " " << tsGate.outputWire << " " << tsGate.type << std::endl;
         }
         else {
             std::cerr << "Unsupported tri-state gate type: " << tsGate.type << std::endl;
             exit(1);
         }
     }
+
 
     outFile.close();
 }
@@ -330,9 +361,23 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // Collect original output wires
+    std::vector<int> originalOutputWires;
+    int totalOutputWireCount = 0;
+    for (int count : outputWireCounts) {
+        totalOutputWireCount += count;
+    }
+    originalOutputWires.resize(totalOutputWireCount);
+
+    // Assuming output wires are the last wires (adjust as needed)
+    for (int i = 0; i < totalOutputWireCount; ++i) {
+        originalOutputWires[i] = numWires - totalOutputWireCount + i;
+    }
+
     std::vector<TriStateGate> triStateGates;
     int nextWireId;
-    if (!transformCircuit(gates, numWires, triStateGates, nextWireId)) {
+    std::vector<int> transformedOutputWires;
+    if (!transformCircuit(gates, numWires, triStateGates, nextWireId, originalOutputWires, transformedOutputWires)) {
         return 1;
     }
 
@@ -341,7 +386,7 @@ int main(int argc, char* argv[]) {
 
     outputCircuit(argv[2], totalTriStateGates, totalTriStateWires,
                   niv, inputWireCounts, nov, outputWireCounts,
-                  triStateGates);
+                  triStateGates, transformedOutputWires);
 
     return 0;
 }

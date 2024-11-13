@@ -25,6 +25,7 @@ int addConstGateCompatibilityConstraints(
 int addBUFFERCompatibilityConstraints(
     int funcVar, 
     int selVar1, int selVar2,  
+    int outputSelVar, // New parameter for the output selection variable
     int controlVar_v1, int controlVar_v2, 
     int dataVar_v1, int dataVar_v2, 
     int gateOutputVar_v1, int gateOutputVar_v2, 
@@ -33,6 +34,7 @@ int addBUFFERCompatibilityConstraints(
 int addJOINCompatibilityConstraints(
     int funcVar, 
     int selVar1, int selVar2, 
+    int outputSelVar, // New parameter for the output selection variable
     int inputVar1_v1, int inputVar1_v2, 
     int inputVar2_v1, int inputVar2_v2, 
     int gateOutputVar_v1, int gateOutputVar_v2, 
@@ -41,6 +43,7 @@ int addJOINCompatibilityConstraints(
 int addXORCompatibilityConstraints(
     int funcVar, 
     int selVar1, int selVar2, 
+    int outputSelVar, // New parameter for the output selection variable
     int inputVar1_v1, int inputVar1_v2, 
     int inputVar2_v1, int inputVar2_v2, 
     int gateOutputVar_v1, int gateOutputVar_v2, 

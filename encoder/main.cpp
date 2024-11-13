@@ -21,15 +21,23 @@ int main(int argc, char* argv[]) {
     int windowSize = 7; // By default, can change
     vector<Circuit> subcircuits = partitionCircuit(circuit, windowSize);
     cout << "Circuit has been partitioned into " << subcircuits.size() << " subcircuits" << endl;
+
+    for (size_t i = 0; i < subcircuits.size(); ++i) {
+        cout << "Subcircuit " << i + 1 << ":" << endl;
+        for (const auto& gate : subcircuits[i].gates) {
+            cout << "Gate: " << gate.type << ", Input1: " << gate.input1 << ", Input2: " << gate.input2 << ", Output: " << gate.output << endl;
+        }
+        cout << endl;
+    }
     int maxEll = windowSize;
     for (size_t i = 0; i < subcircuits.size(); ++i) { 
         bool found = false;
-        for (int ell = maxEll / 2; ell < getGateCount(subcircuits[i]); ++ell) {
+        for (int ell = 3; ell <= getGateCount(subcircuits[i]); ell++) {
             string qbfFilename = "../qbf/subcircuit_" + to_string(i + 1) + "_ell_" + to_string(ell) + ".qdimacs";
             encodeSubcircuitAsQBF(subcircuits[i], ell, qbfFilename);
             cout << "Subcircuit " << i + 1 << " with ell = " << ell << " has been written to " << qbfFilename << endl;
 
-            string solverCommand = "./depqbf -v " + qbfFilename + " > solver_output.txt";
+            string solverCommand = "./depqbf " + qbfFilename + " > solver_output.txt";
             int result = system(solverCommand.c_str());
 
             ifstream solverOutput("solver_output.txt");
