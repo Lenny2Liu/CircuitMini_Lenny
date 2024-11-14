@@ -2,6 +2,8 @@
 #include <fstream>
 #include <iostream>
 #include <tuple>
+#include <set>
+#include <sstream>
 
 using namespace std;
 
@@ -137,16 +139,16 @@ vector<int> simulateOriginalCircuit(
             wireValues[outputWire] = output;
         }
 
-        cout << "Gate input id " << gate.input1 << " " << gate.input2 
-             << " value " << wireValues[gate.input1] << " " << wireValues[gate.input2] << endl;
-        cout << "Gate output wire, value " << outputWire << " " << wireValues[outputWire] << endl;
+        // cout << "Gate input id " << gate.input1 << " " << gate.input2 
+        //      << " value " << wireValues[gate.input1] << " " << wireValues[gate.input2] << endl;
+        // cout << "Gate output wire, value " << outputWire << " " << wireValues[outputWire] << endl;
     }
 
     // Collect the values of all output wires
     vector<int> outputValues;
     for (int outputWireID : originalCircuit.outputWires) {
         outputValues.push_back(wireValues[outputWireID]);
-        cout << "OUTPUT WIRE ID " << outputWireID << endl;
+        // cout << "OUTPUT WIRE ID " << outputWireID << endl;
     }
 
     return outputValues;
@@ -520,7 +522,7 @@ int addXORCompatibilityConstraints(
 }
 
 
-void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const string& filename) {
+QDPLLResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const string& filename) {
     ofstream outfile(filename);
     if (!outfile) {
         cerr << "Cannot open the file: " << filename << endl;
@@ -545,7 +547,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
     int n = subcircuit.numInputs;
     int numOutputs = subcircuit.numOutputs;
     vector<GateType> possibleFunctions = {XOR, BUFFER, JOIN};
-
+    cout << "Number of OUTPUTs: " << numOutputs << endl;
     auto gateTypeToString = [](GateType type) -> string {
         switch (type) {
             case XOR: return "XOR";
@@ -700,16 +702,31 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
         }
         clauses.push_back(to_string(-v1) + " " + to_string(-v2) + " 0");
     }
+
     // 2. Exactly one output selection variable is true for each gate CHECKED
+    // When setting up output selection constraints
     for (int i = 0; i < numGates; ++i) {
         vector<int> gateOutputSelectionVars;
         for (size_t t = 0; t < possibleWires.size(); ++t) {
             int outputSelVar = outputSelectionVarMap[{i, possibleWires[t]}];
             gateOutputSelectionVars.push_back(outputSelVar);
         }
-        addExactlyOneConstraint(gateOutputSelectionVars, clauses);
+        
+        // For constant gates (i == 0 or i == 1), don't force exactly one output
+        // Only require at most one output
+        if (i <= 1) {  // Constant gates
+            // At most one output (prevent multiple outputs)
+            for (size_t j = 0; j < gateOutputSelectionVars.size(); ++j) {
+                for (size_t k = j + 1; k < gateOutputSelectionVars.size(); ++k) {
+                    clauses.push_back(to_string(-gateOutputSelectionVars[j]) + " " + 
+                                    to_string(-gateOutputSelectionVars[k]) + " 0");
+                }
+            }
+        } else {
+            // For non-constant gates, keep the exactly-one constraint
+            addExactlyOneConstraint(gateOutputSelectionVars, clauses);
+        }
     }
-
     // 3. No two gates output to the same wire CHECKED
     for (size_t t = 0; t < possibleWires.size(); ++t) {
         for (int i = 0; i < numGates; ++i) {
@@ -728,36 +745,37 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
             constWires.push_back({gate.output, true});
             for (size_t t = 0; t < possibleWires.size(); ++t) {
                 int outputSelVar = outputSelectionVarMap[{0, possibleWires[t]}];
-                if (possibleWires[t] == gate.output) {
-                    clauses.push_back(to_string(outputSelVar) + " 0");
-                } else {
+                if (possibleWires[t] != gate.output) {
                     clauses.push_back(to_string(-outputSelVar) + " 0");
                 }
             }
         }
         else if (gate.type == CONST_ZERO) {
             constWires.push_back({gate.output, false});
+            cout << "CONST_ZERO OUTPUT WIRE: " << gate.output << endl;
             for (size_t t = 0; t < possibleWires.size(); ++t) {
                 int outputSelVar = outputSelectionVarMap[{1, possibleWires[t]}];
-                if (possibleWires[t] == gate.output) {
-                    clauses.push_back(to_string(outputSelVar) + " 0");
-                } else {
+                if (possibleWires[t] != gate.output) {
                     clauses.push_back(to_string(-outputSelVar) + " 0");
                 }
             }
         }
     }
-
+    // clauses.push_back("CONSTRAINTS FOR CONSTANTS");
     for (const auto& [wireId, isOne] : constWires) {
+        if (wireVarMap.find(wireId) == wireVarMap.end()) {
+            continue;
+        }
         WireVars wire = wireVarMap[wireId];
         if (isOne) {
-            // cout << "CONST_ONE: " << wire.v1 << " " << wire.v2 << endl;
+            cout << "CONST_ONE: " << wire.v1 << " " << wire.v2 << endl;
             // CONST_ONE: v1=0, v2=1  
+
             clauses.push_back(to_string(-wire.v1) + " 0");
             clauses.push_back(to_string(wire.v2) + " 0");
         } else {
             // CONST_ZERO: v1=0, v2=0
-            // cout << "CONST_ZERO: " << wire.v1 << " " << wire.v2 << endl;
+            cout << "CONST_ZERO: " << wire.v1 << " " << wire.v2 << endl;
             clauses.push_back(to_string(-wire.v1) + " 0");
             clauses.push_back(to_string(-wire.v2) + " 0");
         }
@@ -814,7 +832,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
             // cout << "outputWireID: " << outputWireID << endl;
             int outputSelVar = outputSelectionVarMap[{i, outputWireID}];
             if (find(inputWireIDs.begin(), inputWireIDs.end(), outputWireID) != inputWireIDs.end()) {
-                // cout << "outputWireID: " << outputWireID << " var " << outputSelVar << endl;
+                cout << "outputWireID: " << outputWireID << " var " << outputSelVar << endl;
                 clauses.push_back(to_string(-outputSelVar) + " 0");
                 continue;
             }
@@ -920,7 +938,6 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
             }
         }
     }
-
     // Add constraint: every internal wire (not circuit output) must be used as input somewhere
     for (size_t t = 0; t < possibleWires.size(); ++t) {
         int wireID = possibleWires[t];
@@ -932,17 +949,17 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
             continue;
         }
 
-        // // Skip wires that come from constant gates
-        // bool isConstantWire = false;
-        // for (const auto& [constWireID, _] : constWires) {
-        //     if (wireID == constWireID) {
-        //     isConstantWire = true;
-        //     break;
-        //     }
-        // }
-        // if (isConstantWire) {
-        //     continue;
-        // }
+        // Skip wires that come from constant gates
+        bool isConstantWire = false;
+        for (const auto& [constWireID, _] : constWires) {
+            if (wireID == constWireID) {
+            isConstantWire = true;
+            break;
+            }
+        }
+        if (isConstantWire) {
+            continue;
+        }
 
         // Get all selection variables that could select this wire as input
         vector<int> wireUsageVars;
@@ -1024,8 +1041,8 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
         
         // Add constraints only if expectedOutput is valid
         for (auto output : expectedOutputs) {
-            cout << "Input assignment: " << inputAssignment[0] << " " << inputAssignment[1] << endl;
-            cout << "output result " << output << endl;
+            // cout << "Input assignment: " << inputAssignment[0] << " " << inputAssignment[1] << endl;
+            // cout << "output result " << output << endl;
         }
         for (size_t outIdx = 0; outIdx < expectedOutputs.size(); ++outIdx) {
             int expectedOutput = expectedOutputs[outIdx];
@@ -1090,10 +1107,165 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
 
     outfile << "0" << endl;
 
-    // Write clauses
+    // First, create clause groups and track them
+    std::unordered_map<int, ClauseGroupID> clauseGroups;
+    std::unordered_map<ClauseGroupID, std::vector<std::string>> groupClauses;
+
+    QDPLL* depqbf = qdpll_create();
+
+    qdpll_configure(depqbf, "--incremental-use");
+    qdpll_configure(depqbf, "--dep-man=simple");
+
+    // First scope: Existential - Selection variables, output selection variables, gate function variables
+    Nesting scope1 = qdpll_new_scope(depqbf, QDPLL_QTYPE_EXISTS);
+    for (int var : selectionVars) {
+        qdpll_add(depqbf, var);
+    }
+    for (int var : outputSelectionVars) {
+        qdpll_add(depqbf, var);
+    }
+    for (int var : gateFunctionVars) {
+        qdpll_add(depqbf, var);
+    }
+    for (int var : orderingVars) {
+        qdpll_add(depqbf, var);
+    }
+    qdpll_add(depqbf, 0);  // Close scope
+
+    // Second scope: Universal - Input variables 
+    Nesting scope2 = qdpll_new_scope(depqbf, QDPLL_QTYPE_FORALL);
+    for (int var : inputVars) {
+        qdpll_add(depqbf, var);
+    }
+    qdpll_add(depqbf, 0);  // Close scope
+
+    // Third scope: Existential - Gate value variables
+    Nesting scope3 = qdpll_new_scope(depqbf, QDPLL_QTYPE_EXISTS);
+    for (int var : gateValueVars) {
+        qdpll_add(depqbf, var);
+    }
+    qdpll_add(depqbf, 0);  // Close scope
+
+
     for (const string& clause : clauses) {
         outfile << clause << endl;
     }
+
+    for (int i = 0; i < clauses.size(); i++) {
+        // Create a new group for each clause
+        ClauseGroupID group = qdpll_new_clause_group(depqbf);
+        qdpll_open_clause_group(depqbf, group);
+        
+        // Store the clause text
+        groupClauses[group].push_back(clauses[i]);
+        
+        // Parse the clause string and add literals
+        std::istringstream iss(clauses[i]);
+        std::string literal;
+        
+        // Read literals until we reach "0"
+        while (iss >> literal) {
+            if (literal == "0") {
+                break;
+            }
+            // Convert string to integer and add to solver 
+            qdpll_add(depqbf, std::stoi(literal));
+        }
+        // Close the clause by adding 0
+        qdpll_add(depqbf, 0);
+        
+        qdpll_close_clause_group(depqbf, group);
+    }
+    // Solve
+    QDPLLResult result = qdpll_sat(depqbf);
+
+    cout << "Result: " << result << endl;
+
+
+
+    // After solving
+    if (result == QDPLL_RESULT_SAT) {
+        std::cout << "SAT Result - Variable Assignments:" << std::endl;
+        
+        // Print assignments for all variables
+        // Note: Variable IDs start from 1
+        for (int var = 1; var <= varCounter-1; var++) {
+            QDPLLAssignment value = qdpll_get_value(depqbf, var);
+            std::string value_str;
+            switch(value) {
+                case QDPLL_ASSIGNMENT_TRUE:
+                    value_str = "TRUE";
+                    break;
+                case QDPLL_ASSIGNMENT_FALSE:
+                    value_str = "FALSE";
+                    break;
+                case QDPLL_ASSIGNMENT_UNDEF:
+                    value_str = "UNDEFINED";
+                    break;
+                default:
+                    value_str = "UNKNOWN";
+            }
+            
+            // If you're tracking variable meanings with variableMapping
+            if (variableMapping.find(var) != variableMapping.end()) {
+                std::cout << "Variable " << var << " (" << variableMapping[var] << "): " << value_str << std::endl;
+            } else {
+                std::cout << "Variable " << var << ": " << value_str << std::endl;
+            }
+        }
+    } 
+
+    // If UNSAT, get the core
+    if (result == QDPLL_RESULT_UNSAT) {
+        ClauseGroupID* relevantGroups = qdpll_get_relevant_clause_groups(depqbf);
+        
+        std::cout << "UNSAT Core clauses:\n";
+        for (int i = 0; relevantGroups[i] != 0; i++) {
+            ClauseGroupID group = relevantGroups[i];
+            for (const std::string& clause : groupClauses[group]) {
+                std::cout << clause << "\n";
+            }
+        }
+        
+        // Don't forget to free the array
+        free(relevantGroups);
+    }
+
+
+
+    if (result == QDPLL_RESULT_UNSAT) {
+        ClauseGroupID* relevantGroups = qdpll_get_relevant_clause_groups(depqbf);
+        
+        // Collect all variables involved in core
+        std::set<int> coreVars;
+        for (int i = 0; relevantGroups[i] != 0; i++) {
+            for (const std::string& clause : groupClauses[relevantGroups[i]]) {
+                std::istringstream iss(clause);
+                int var;
+                while (iss >> var) {
+                    if (var != 0) {
+                        coreVars.insert(abs(var));  // Store absolute value of variable ID
+                    }
+                }
+            }
+        }
+        
+        // Print variables involved
+        std::cout << "Variables involved in conflict:\n";
+        for (int var : coreVars) {
+            if (variableMapping.find(var) != variableMapping.end()) {
+                std::cout << variableMapping[var] << " " << var << "\n";
+            }
+        }
+        
+        free(relevantGroups);
+    }
+
+    qdpll_delete(depqbf);
+
+
+
+
 
     outfile.close();
 
@@ -1109,6 +1281,7 @@ void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const 
     }
 
     mappingFile.close();
+    return result;
 }
 
 

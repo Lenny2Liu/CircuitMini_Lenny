@@ -7,6 +7,7 @@
 #include <unordered_set>
 #include "circuit.h"
 #include "utils.h"
+#include "qdpll_wrapper.h"
 
 
 struct WireVars {
@@ -60,6 +61,6 @@ int addEquivalenceConstraints(
     std::vector<std::string>& clauses
 );
 
-void encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const std::string& filename);
+QDPLLResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const std::string& filename);
 
 #endif 

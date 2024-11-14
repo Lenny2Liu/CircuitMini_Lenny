@@ -18,7 +18,7 @@ int main(int argc, char* argv[]) {
 
     int MinimizedCount = 0;
     int minimizedGateCount = 0;
-    int windowSize = 7; // By default, can change
+    int windowSize = 5; // By default, can change
     vector<Circuit> subcircuits = partitionCircuit(circuit, windowSize);
     cout << "Circuit has been partitioned into " << subcircuits.size() << " subcircuits" << endl;
 
@@ -30,28 +30,36 @@ int main(int argc, char* argv[]) {
         cout << endl;
     }
     int maxEll = windowSize;
+    QDPLLResult result;
     for (size_t i = 0; i < subcircuits.size(); ++i) { 
         bool found = false;
         for (int ell = 3; ell <= getGateCount(subcircuits[i]); ell++) {
             string qbfFilename = "../qbf/subcircuit_" + to_string(i + 1) + "_ell_" + to_string(ell) + ".qdimacs";
-            encodeSubcircuitAsQBF(subcircuits[i], ell, qbfFilename);
-            cout << "Subcircuit " << i + 1 << " with ell = " << ell << " has been written to " << qbfFilename << endl;
-
-            string solverCommand = "./depqbf " + qbfFilename + " > solver_output.txt";
-            int result = system(solverCommand.c_str());
-
-            ifstream solverOutput("solver_output.txt");
-            string firstLine;
-            getline(solverOutput, firstLine);
-            if (firstLine == "SAT") {
+            result = encodeSubcircuitAsQBF(subcircuits[i], ell, qbfFilename);
+            if (result == QDPLL_RESULT_SAT) {
                 cout << "Found a solution with ell = " << ell << " gates for subcircuit " << i + 1 << endl;
                 found = true;
                 MinimizedCount ++;
                 minimizedGateCount += windowSize - ell;
                 break;
-            } else {
-                cout << "No solution with ell = " << ell << " gates for subcircuit " << i + 1 << endl;
             }
+            cout << "Subcircuit " << i + 1 << " with ell = " << ell << " has been written to " << qbfFilename << endl;
+
+            // string solverCommand = "./depqbf " + qbfFilename + " > solver_output.txt";
+            // int result = system(solverCommand.c_str());
+
+            // ifstream solverOutput("solver_output.txt");
+            // string firstLine;
+            // getline(solverOutput, firstLine);
+            // if (firstLine == "SAT") {
+            //     cout << "Found a solution with ell = " << ell << " gates for subcircuit " << i + 1 << endl;
+            //     found = true;
+            //     MinimizedCount ++;
+            //     minimizedGateCount += windowSize - ell;
+            //     break;
+            // } else {
+            //     cout << "No solution with ell = " << ell << " gates for subcircuit " << i + 1 << endl;
+            // }
         }
         if (!found) {
             cout << "Could not synthesize subcircuit " << i + 1 << " within the gate limit." << endl;

@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <set>
 
 // Hash function for pair<int, int> if needed in future
 struct pair_hash {
@@ -30,7 +31,8 @@ struct TriStateGate {
 bool readCircuit(const std::string& filename, int& numGates, int& numWires,
                  int& niv, std::vector<int>& inputWireCounts,
                  int& nov, std::vector<int>& outputWireCounts,
-                 std::vector<Gate>& gates) {
+                 std::vector<Gate>& gates,
+                 std::vector<int>& originalOutputWires) {
     std::ifstream circuitFile(filename.c_str());
     if (!circuitFile.is_open()) {
         std::cerr << "Failed to open the circuit file." << std::endl;
@@ -101,8 +103,28 @@ bool readCircuit(const std::string& filename, int& numGates, int& numWires,
         }
         gates.push_back(gate);
     }
+
+
+
+    std::string outputLine;
+    while (std::getline(circuitFile, line)) {
+        if (line.empty()) continue;
+        outputLine = line;
+    }
+    if (outputLine.substr(0, 10) == "Outputwire") {
+        std::istringstream iss(outputLine.substr(10));
+        int wire;
+        while (iss >> wire) {
+            originalOutputWires.push_back(wire);
+        }
+    } else {
+        std::cerr << "Missing output wire specification" << std::endl;
+        return false;
+    }
+
     return true;
 }
+
 
 bool transformCircuit(const std::vector<Gate>& gates, int numWires,
                       std::vector<TriStateGate>& triStateGates, int& nextWireId,
@@ -113,6 +135,10 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
     // Predefine constant wires to reuse across the circuit
     int const_one_wire = nextWireId++;
     int const_zero_wire = nextWireId++;
+    std::cout << "outputwires: ";
+    for (int i = 0; i < originalOutputWires.size(); i++) {
+        std::cout << originalOutputWires[i] << " ";
+    }
 
     // Create CONST_ONE and CONST_ZERO gates once
     TriStateGate constOneGate;
@@ -133,6 +159,10 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
         wireMapping[i] = i; // Initialize mapping (assuming input wires remain the same)
     }
 
+    // Track final output wire mappings separately
+    std::unordered_map<int, int> outputWireMapping;
+    std::set<int> originalOutputSet(originalOutputWires.begin(), originalOutputWires.end());
+
     for (size_t idx = 0; idx < gates.size(); ++idx) {
         const Gate& gate = gates[idx];
 
@@ -140,7 +170,6 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
         std::vector<int> mappedInputWires;
         for (int wire : gate.inputWires) {
             if (wireMapping.find(wire) == wireMapping.end()) {
-                // Wire not yet mapped, use the same wire ID
                 wireMapping[wire] = wire;
             }
             mappedInputWires.push_back(wireMapping[wire]);
@@ -150,7 +179,6 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
         std::vector<int> mappedOutputWires;
         for (int wire : gate.outputWires) {
             if (wireMapping.find(wire) == wireMapping.end()) {
-                // Assign new wire ID for output wires
                 wireMapping[wire] = wire;
             }
             mappedOutputWires.push_back(wireMapping[wire]);
@@ -162,6 +190,11 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
             tsGate.inputWires = mappedInputWires;
             tsGate.outputWire = mappedOutputWires[0];
             triStateGates.push_back(tsGate);
+            
+            // If this is an output wire, store its final mapping
+            if (originalOutputSet.count(gate.outputWires[0]) > 0) {
+                outputWireMapping[gate.outputWires[0]] = mappedOutputWires[0];
+            }
         }
         else if (gate.type == "AND") {
             if (gate.numInputs != 2 || gate.numOutputs != 1) {
@@ -203,6 +236,11 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
             joinGate.inputWires.push_back(buffer0_output);
             joinGate.outputWire = output;
             triStateGates.push_back(joinGate);
+
+            // If this is an output wire, store its final mapping
+            if (originalOutputSet.count(gate.outputWires[0]) > 0) {
+                outputWireMapping[gate.outputWires[0]] = output;
+            }
         }
         else if (gate.type == "INV") {
             if (gate.numInputs != 1 || gate.numOutputs != 1) {
@@ -218,6 +256,11 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
             xorGate.inputWires.push_back(const_one_wire);
             xorGate.outputWire = output;
             triStateGates.push_back(xorGate);
+
+            // If this is an output wire, store its final mapping
+            if (originalOutputSet.count(gate.outputWires[0]) > 0) {
+                outputWireMapping[gate.outputWires[0]] = output;
+            }
         }
         else if (gate.type == "EQ" || gate.type == "EQW") {
             if (gate.numInputs != 1 || gate.numOutputs != 1) {
@@ -233,6 +276,11 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
             bufferGate.inputWires.push_back(const_one_wire);
             bufferGate.outputWire = output;
             triStateGates.push_back(bufferGate);
+
+            // If this is an output wire, store its final mapping
+            if (originalOutputSet.count(gate.outputWires[0]) > 0) {
+                outputWireMapping[gate.outputWires[0]] = output;
+            }
         }
         else if (gate.type == "MAND") {
             if (gate.numInputs % 2 != 0 || gate.numOutputs != (gate.numInputs / 2)) {
@@ -276,6 +324,11 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
                 joinGate.inputWires.push_back(buffer0_output);
                 joinGate.outputWire = output;
                 triStateGates.push_back(joinGate);
+
+                // If this is an output wire, store its final mapping
+                if (originalOutputSet.count(gate.outputWires[i]) > 0) {
+                    outputWireMapping[gate.outputWires[i]] = output;
+                }
             }
         }
         else {
@@ -283,21 +336,33 @@ bool transformCircuit(const std::vector<Gate>& gates, int numWires,
             return false;
         }
     }
+    std::cout << "Output wire mapping:" << std::endl;
+    for (const auto& pair : outputWireMapping) {
+        std::cout << "Original wire: " << pair.first << " -> Transformed wire: " << pair.second << std::endl;
+    }
 
-    // Collect transformed output wires
-    for (int originalOutputWire : originalOutputWires) {
-        if (wireMapping.find(originalOutputWire) != wireMapping.end()) {
-            transformedOutputWires.push_back(wireMapping[originalOutputWire]);
-        } else {
-            std::cerr << "Original output wire " << originalOutputWire << " not found in mapping." << std::endl;
+    // Map the output wires using our output-specific mapping
+    transformedOutputWires.clear();
+    for (int originalWire : originalOutputWires) {
+        auto it = outputWireMapping.find(originalWire);
+        if (it == outputWireMapping.end()) {
+            std::cerr << "Error: Cannot find final mapping for output wire " << originalWire << std::endl;
             return false;
         }
+        transformedOutputWires.push_back(it->second);
+    }
+
+    // For debugging
+    std::cout << "Original to transformed output wire mapping:" << std::endl;
+    for (size_t i = 0; i < originalOutputWires.size(); i++) {
+        std::cout << "Original: " << originalOutputWires[i] 
+                  << " -> Transformed: " << transformedOutputWires[i] << std::endl;
     }
 
     return true;
 }
 
-// Function to output the transformed circuit to a file
+
 void outputCircuit(const std::string& outputFilename, int totalTriStateGates, int totalTriStateWires,
                    int niv, const std::vector<int>& inputWireCounts,
                    int nov, const std::vector<int>& outputWireCounts,
@@ -309,7 +374,8 @@ void outputCircuit(const std::string& outputFilename, int totalTriStateGates, in
         exit(1);
     }
 
-    outFile << totalTriStateGates << " " << totalTriStateWires << std::endl;
+    // Write the header information
+    outFile << totalTriStateGates - 1 << " " << totalTriStateWires << std::endl;  // -1 because we added a marker gate
     outFile << niv;
     for (int count : inputWireCounts) {
         outFile << " " << count;
@@ -321,30 +387,31 @@ void outputCircuit(const std::string& outputFilename, int totalTriStateGates, in
     }
     outFile << std::endl;
 
-    for (const TriStateGate& tsGate : triStateGates) {
+    // Write all gates except the last one (which is our output marker)
+    for (size_t i = 0; i < triStateGates.size(); i++) {
+        const TriStateGate& tsGate = triStateGates[i];
         if (tsGate.type == "XOR" || tsGate.type == "JOIN" || tsGate.type == "BUFFER") {
-            int numInputs = tsGate.inputWires.size();
-            int numOutputs = 1;
-            outFile << numInputs << " " << numOutputs << " ";
+            outFile << tsGate.inputWires.size() << " " << "1" << " ";
             for (int wire : tsGate.inputWires) {
                 outFile << wire << " ";
             }
             outFile << tsGate.outputWire << " " << tsGate.type << std::endl;
         }
         else if (tsGate.type == "CONST_ONE" || tsGate.type == "CONST_ZERO") {
-            int numInputs = 0;
-            int numOutputs = 1;
-            outFile << numInputs << " " << numOutputs << " " << tsGate.outputWire << " " << tsGate.type << std::endl;
-        }
-        else {
-            std::cerr << "Unsupported tri-state gate type: " << tsGate.type << std::endl;
-            exit(1);
+            outFile << "0 1 " << tsGate.outputWire << " " << tsGate.type << std::endl;
         }
     }
 
+    // Write the output wire line
+    outFile << "Outputwire";
+    for (int wire : transformedOutputWires) {
+        outFile << " " << wire;
+    }
+    outFile << std::endl;
 
     outFile.close();
 }
+
 
 int main(int argc, char* argv[]) {
     if (argc != 3) {
@@ -356,22 +423,9 @@ int main(int argc, char* argv[]) {
     int niv, nov;
     std::vector<int> inputWireCounts, outputWireCounts;
     std::vector<Gate> gates;
-
-    if (!readCircuit(argv[1], numGates, numWires, niv, inputWireCounts, nov, outputWireCounts, gates)) {
+    std::vector<int> originalOutputWires;  // Added
+    if (!readCircuit(argv[1], numGates, numWires, niv, inputWireCounts, nov, outputWireCounts, gates, originalOutputWires)) {
         return 1;
-    }
-
-    // Collect original output wires
-    std::vector<int> originalOutputWires;
-    int totalOutputWireCount = 0;
-    for (int count : outputWireCounts) {
-        totalOutputWireCount += count;
-    }
-    originalOutputWires.resize(totalOutputWireCount);
-
-    // Assuming output wires are the last wires (adjust as needed)
-    for (int i = 0; i < totalOutputWireCount; ++i) {
-        originalOutputWires[i] = numWires - totalOutputWireCount + i;
     }
 
     std::vector<TriStateGate> triStateGates;

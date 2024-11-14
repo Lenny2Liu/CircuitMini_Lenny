@@ -67,7 +67,7 @@ Circuit readCircuit(const string& filename) {
     // Read gates
     while (getline(infile, line)) {
         if (line.empty()) continue;
-        if (line.substr(0, 11) == "OutputWires") {
+        if (line.substr(0, 10) == "Outputwire") {
             istringstream oss(line.substr(11)); 
             int wire;
             while (oss >> wire) {
@@ -128,6 +128,10 @@ Circuit readCircuit(const string& filename) {
     infile.close();
     return circuit;
 }
+
+
+
+
 vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize) {
     vector<Circuit> subcircuits;
     if (getGateCount(circuit) <= windowSize) {
@@ -301,6 +305,10 @@ vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize) {
             for (int wire : subcircuit.inputWires) {
                 cout << wire << " ";
             }
+            cout << "output wires: ";
+            for (int wire : subcircuit.outputWires) {
+                cout << wire << " ";
+            }   
             cout << endl;
 
             startIdx = endIdx;
