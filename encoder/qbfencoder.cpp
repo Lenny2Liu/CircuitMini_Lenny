@@ -26,6 +26,68 @@ int addExactlyOneConstraint(const vector<int>& vars, vector<string>& clauses) {
     return clauses.size() - initialClauseCount;
 }
 
+int addJoinMinimizationConstraints(
+    const vector<int>& joinGateVars,
+    int maxAllowedJoins,
+    vector<string>& clauses) {
+    int initialClauseCount = clauses.size();
+    
+    // Add cardinality constraint to limit number of JOIN gates
+    // We'll use sequential counter encoding for this
+    int n = joinGateVars.size();
+    
+    // Create sequential counter variables
+    vector<vector<int>> s(n + 1, vector<int>(maxAllowedJoins + 1));
+    int nextVar = 1;
+    for(int i = 0; i <= n; i++) {
+        for(int j = 0; j <= maxAllowedJoins; j++) {
+            if(i == 0 || j == 0) {
+                s[i][j] = -1;  // dummy value
+            } else {
+                s[i][j] = ++nextVar;
+            }
+        }
+    }
+    
+    // Add sequential counter clauses
+    for(int i = 1; i <= n; i++) {
+        // First bit
+        clauses.push_back(to_string(-joinGateVars[i-1]) + " " + 
+                         to_string(s[i][1]) + " 0");
+                         
+        // Propagate bits
+        for(int j = 1; j < maxAllowedJoins; j++) {
+            // s[i][j] → s[i+1][j]
+            clauses.push_back(to_string(-s[i][j]) + " " + 
+                            to_string(s[i+1][j]) + " 0");
+            
+            // (x[i] ∧ s[i][j]) → s[i+1][j+1]
+            clauses.push_back(to_string(-joinGateVars[i-1]) + " " + 
+                            to_string(-s[i][j]) + " " + 
+                            to_string(s[i+1][j+1]) + " 0");
+        }
+        
+        // Last bit
+        clauses.push_back(to_string(-joinGateVars[i-1]) + " " + 
+                         to_string(-s[i][maxAllowedJoins]) + " 0");
+    }
+    
+    // For each k from 1 to maxAllowedJoins-1, add clauses that
+    // prefer k joins over k+1 joins when possible
+    for(int k = 1; k < maxAllowedJoins; k++) {
+        string preference_clause;
+        for(int i = 1; i <= n; i++) {
+            preference_clause += to_string(-s[i][k+1]) + " ";
+        }
+        preference_clause += "0";
+        clauses.push_back(preference_clause);
+    }
+
+    return clauses.size() - initialClauseCount;
+}
+
+
+
 
 vector<int> simulateOriginalCircuit(
     const Circuit& originalCircuit,
@@ -522,7 +584,7 @@ int addXORCompatibilityConstraints(
 }
 
 
-QDPLLResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const string& filename) {
+MinimizationResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const string& filename, const int numJOINs) {
     ofstream outfile(filename);
     if (!outfile) {
         cerr << "Cannot open the file: " << filename << endl;
@@ -687,6 +749,15 @@ QDPLLResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates,
         }
     }
 
+    int joinCount = 0;
+    vector<int> joinGateVars;  // Track variables representing JOIN gates
+
+    for (int i = 2; i < numGates; ++i) {
+        if (gateFunctionVarMap.find({i, JOIN}) != gateFunctionVarMap.end()) {
+            int joinVar = gateFunctionVarMap[{i, JOIN}];
+            joinGateVars.push_back(joinVar);
+        }
+    }
     vector<string> clauses;
 
     // 1. No wire in the illegal state, CHECKED
@@ -768,14 +839,14 @@ QDPLLResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates,
         }
         WireVars wire = wireVarMap[wireId];
         if (isOne) {
-            cout << "CONST_ONE: " << wire.v1 << " " << wire.v2 << endl;
+            // cout << "CONST_ONE: " << wire.v1 << " " << wire.v2 << endl;
             // CONST_ONE: v1=0, v2=1  
 
             clauses.push_back(to_string(-wire.v1) + " 0");
             clauses.push_back(to_string(wire.v2) + " 0");
         } else {
             // CONST_ZERO: v1=0, v2=0
-            cout << "CONST_ZERO: " << wire.v1 << " " << wire.v2 << endl;
+            // cout << "CONST_ZERO: " << wire.v1 << " " << wire.v2 << endl;
             clauses.push_back(to_string(-wire.v1) + " 0");
             clauses.push_back(to_string(-wire.v2) + " 0");
         }
@@ -832,7 +903,7 @@ QDPLLResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates,
             // cout << "outputWireID: " << outputWireID << endl;
             int outputSelVar = outputSelectionVarMap[{i, outputWireID}];
             if (find(inputWireIDs.begin(), inputWireIDs.end(), outputWireID) != inputWireIDs.end()) {
-                cout << "outputWireID: " << outputWireID << " var " << outputSelVar << endl;
+                // cout << "outputWireID: " << outputWireID << " var " << outputSelVar << endl;
                 clauses.push_back(to_string(-outputSelVar) + " 0");
                 continue;
             }
@@ -945,7 +1016,7 @@ QDPLLResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates,
         // Skip if this wire is a circuit output, input wire, or output wire of a constant
         if (find(circuitOutputWireIDs.begin(), circuitOutputWireIDs.end(), wireID) != circuitOutputWireIDs.end() ||
             find(inputWireIDs.begin(), inputWireIDs.end(), wireID) != inputWireIDs.end()) {
-            cout << "Skipping wire " << wireID << endl;
+            // cout << "Skipping wire " << wireID << endl;
             continue;
         }
 
@@ -1074,7 +1145,32 @@ QDPLLResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates,
         clause += "0";
         clauses.push_back(clause);
     }
+
+    int maxAllowedJoins = numJOINs;
+    // Create counter variables and add constraints
+    vector<int> counterVars;
+    int startCounterVars = varCounter;
+    cout << "maximum allowed joins: " << maxAllowedJoins << endl;
+    cout << "joinGateVars size: " << joinGateVars.size() << endl;
+    // Add sequential counter variables
+    for(int i = 1; i <= joinGateVars.size(); i++) {
+        for(int j = 1; j <= maxAllowedJoins; j++) {
+            counterVars.push_back(varCounter++);
+        }
+    }
+    // Add JOIN minimization constraints
+    addJoinMinimizationConstraints(joinGateVars, maxAllowedJoins, clauses);
+
+
     int totalClauses = clauses.size();
+
+    cout << "Selection Vars Size : " << selectionVars.size() << endl;
+    cout << "Output Selection Vars Size : " << outputSelectionVars.size() << endl;
+    cout << "Gate Function Vars Size : " << gateFunctionVars.size() << endl;
+    cout << "Ordering Vars Size : " << orderingVars.size() << endl;
+    cout << "Gate Value Vars Size : " << gateValueVars.size() << endl;
+    cout << "Counter Vars Size : " << counterVars.size() << endl;
+
 
     outfile << "p cnf " << varCounter - 1 << " " << totalClauses << endl;
     outfile << "e ";
@@ -1104,6 +1200,22 @@ QDPLLResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates,
 
         outfile << var << " ";
     }
+    for (int var : counterVars) {
+        outfile << var << " ";
+    }
+
+  // Write variable mapping
+    ofstream mappingFile("variable_mapping.txt");
+    if (!mappingFile) {
+        cerr << "Cannot open the file: variable_mapping.txt" << endl;
+        exit(1);
+    }
+
+    for (const auto& entry : variableMapping) {
+        mappingFile << entry.first << " " << entry.second << endl;
+    }
+
+    mappingFile.close();
 
     outfile << "0" << endl;
 
@@ -1144,6 +1256,9 @@ QDPLLResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates,
     for (int var : gateValueVars) {
         qdpll_add(depqbf, var);
     }
+    for (int var : counterVars) {
+        qdpll_add(depqbf, var);
+    }
     qdpll_add(depqbf, 0);  // Close scope
 
 
@@ -1177,115 +1292,151 @@ QDPLLResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates,
         qdpll_close_clause_group(depqbf, group);
     }
     // Solve
-    QDPLLResult result = qdpll_sat(depqbf);
 
-    cout << "Result: " << result << endl;
-
-
-
-    // After solving
-    if (result == QDPLL_RESULT_SAT) {
-        std::cout << "SAT Result - Variable Assignments:" << std::endl;
+//     // After solving
+//     if (result == QDPLL_RESULT_SAT) {
+//         std::cout << "SAT Result - Variable Assignments:" << std::endl;
         
-        // Print assignments for all variables
-        // Note: Variable IDs start from 1
-        for (int var = 1; var <= varCounter-1; var++) {
-            QDPLLAssignment value = qdpll_get_value(depqbf, var);
-            std::string value_str;
-            switch(value) {
-                case QDPLL_ASSIGNMENT_TRUE:
-                    value_str = "TRUE";
-                    break;
-                case QDPLL_ASSIGNMENT_FALSE:
-                    value_str = "FALSE";
-                    break;
-                case QDPLL_ASSIGNMENT_UNDEF:
-                    value_str = "UNDEFINED";
-                    break;
-                default:
-                    value_str = "UNKNOWN";
-            }
+//         // Print assignments for all variables
+
+//         // for (int var = 1; var <= varCounter-1; var++) {
+//         //     QDPLLAssignment value = qdpll_get_value(depqbf, var);
+//         //     std::string value_str;
+//         //     switch(value) {
+//         //         case QDPLL_ASSIGNMENT_TRUE:
+//         //             value_str = "TRUE";
+//         //             break;
+//         //         case QDPLL_ASSIGNMENT_FALSE:
+//         //             value_str = "FALSE";
+//         //             break;
+//         //         case QDPLL_ASSIGNMENT_UNDEF:
+//         //             value_str = "UNDEFINED";
+//         //             break;
+//         //         default:
+//         //             value_str = "UNKNOWN";
+//         //     }
             
-            // If you're tracking variable meanings with variableMapping
-            if (variableMapping.find(var) != variableMapping.end()) {
-                std::cout << "Variable " << var << " (" << variableMapping[var] << "): " << value_str << std::endl;
-            } else {
-                std::cout << "Variable " << var << ": " << value_str << std::endl;
+//         //     // If you're tracking variable meanings with variableMapping
+//         //     if (variableMapping.find(var) != variableMapping.end()) {
+//         //         std::cout << "Variable " << var << " (" << variableMapping[var] << "): " << value_str << std::endl;
+//         //     } else {
+//         //         std::cout << "Variable " << var << ": " << value_str << std::endl;
+//         //     }
+//         // }
+//         int actualJoinCount = 0;
+//         for (int var : joinGateVars) {
+//             if (qdpll_get_value(depqbf, var) == QDPLL_ASSIGNMENT_TRUE) {
+//                 actualJoinCount++;
+//             }
+//         }
+//         cout << "Solution uses " << actualJoinCount << " JOIN gates" << endl;
+//     } 
+
+//     // If UNSAT, get the core
+//     if (result == QDPLL_RESULT_UNSAT) {
+//         ClauseGroupID* relevantGroups = qdpll_get_relevant_clause_groups(depqbf);
+        
+//         std::cout << "UNSAT Core clauses:\n";
+//         for (int i = 0; relevantGroups[i] != 0; i++) {
+//             ClauseGroupID group = relevantGroups[i];
+//             for (const std::string& clause : groupClauses[group]) {
+//                 std::cout << clause << "\n";
+//             }
+//         }
+        
+//         // Don't forget to free the array
+//         free(relevantGroups);
+//     }
+
+
+
+//     if (result == QDPLL_RESULT_UNSAT) {
+//         ClauseGroupID* relevantGroups = qdpll_get_relevant_clause_groups(depqbf);
+        
+//         // Collect all variables involved in core
+//         std::set<int> coreVars;
+//         for (int i = 0; relevantGroups[i] != 0; i++) {
+//             for (const std::string& clause : groupClauses[relevantGroups[i]]) {
+//                 std::istringstream iss(clause);
+//                 int var;
+//                 while (iss >> var) {
+//                     if (var != 0) {
+//                         coreVars.insert(abs(var));  // Store absolute value of variable ID
+//                     }
+//                 }
+//             }
+//         }
+        
+//         // Print variables involved
+//         std::cout << "Variables involved in conflict:\n";
+//         for (int var : coreVars) {
+//             if (variableMapping.find(var) != variableMapping.end()) {
+//                 std::cout << variableMapping[var] << " " << var << "\n";
+//             }
+//         }
+        
+//         free(relevantGroups);
+//     }
+
+//     qdpll_delete(depqbf);
+
+
+
+
+
+//     outfile.close();
+
+//     // Write variable mapping
+//     ofstream mappingFile("variable_mapping.txt");
+//     if (!mappingFile) {
+//         cerr << "Cannot open the file: variable_mapping.txt" << endl;
+//         exit(1);
+//     }
+
+//     for (const auto& entry : variableMapping) {
+//         mappingFile << entry.first << " " << entry.second << endl;
+//     }
+
+//     mappingFile.close();
+//     return result;
+// }
+
+
+//     // SMALL CIRCUIT, MINIMIZE JOIN GATES, DELETE ACYCLICITY CONSTRAINTS, 
+//     // RUNTIME ACYCLICITY CHECK
+//     // DEF 5
+    QDPLLResult result = qdpll_sat(depqbf);
+    
+    MinimizationResult minResult;
+    minResult.success = (result == QDPLL_RESULT_SAT);
+    
+    if (minResult.success) {
+        // Count JOIN gates in solution
+        minResult.joinGates = 0;
+        for (int var : joinGateVars) {
+            if (qdpll_get_value(depqbf, var) == QDPLL_ASSIGNMENT_TRUE) {
+                minResult.joinGates++;
             }
         }
-    } 
-
-    // If UNSAT, get the core
-    if (result == QDPLL_RESULT_UNSAT) {
-        ClauseGroupID* relevantGroups = qdpll_get_relevant_clause_groups(depqbf);
         
-        std::cout << "UNSAT Core clauses:\n";
-        for (int i = 0; relevantGroups[i] != 0; i++) {
-            ClauseGroupID group = relevantGroups[i];
-            for (const std::string& clause : groupClauses[group]) {
-                std::cout << clause << "\n";
-            }
-        }
-        
-        // Don't forget to free the array
-        free(relevantGroups);
-    }
-
-
-
-    if (result == QDPLL_RESULT_UNSAT) {
-        ClauseGroupID* relevantGroups = qdpll_get_relevant_clause_groups(depqbf);
-        
-        // Collect all variables involved in core
-        std::set<int> coreVars;
-        for (int i = 0; relevantGroups[i] != 0; i++) {
-            for (const std::string& clause : groupClauses[relevantGroups[i]]) {
-                std::istringstream iss(clause);
-                int var;
-                while (iss >> var) {
-                    if (var != 0) {
-                        coreVars.insert(abs(var));  // Store absolute value of variable ID
-                    }
+        // Count total gates used
+        minResult.totalGates = 0;
+        for (int i = 2; i < numGates; ++i) {
+            bool gateUsed = false;
+            for (const auto& funcType : {XOR, BUFFER, JOIN}) {
+                auto it = gateFunctionVarMap.find({i, funcType});
+                if (it != gateFunctionVarMap.end() && 
+                    qdpll_get_value(depqbf, it->second) == QDPLL_ASSIGNMENT_TRUE) {
+                    gateUsed = true;
+                    break;
                 }
             }
+            if (gateUsed) minResult.totalGates++;
         }
-        
-        // Print variables involved
-        std::cout << "Variables involved in conflict:\n";
-        for (int var : coreVars) {
-            if (variableMapping.find(var) != variableMapping.end()) {
-                std::cout << variableMapping[var] << " " << var << "\n";
-            }
-        }
-        
-        free(relevantGroups);
     }
 
-    qdpll_delete(depqbf);
 
+   
 
-
-
-
-    outfile.close();
-
-    // Write variable mapping
-    ofstream mappingFile("variable_mapping.txt");
-    if (!mappingFile) {
-        cerr << "Cannot open the file: variable_mapping.txt" << endl;
-        exit(1);
-    }
-
-    for (const auto& entry : variableMapping) {
-        mappingFile << entry.first << " " << entry.second << endl;
-    }
-
-    mappingFile.close();
-    return result;
+    return minResult;
 }
-
-
-    // SMALL CIRCUIT, MINIMIZE JOIN GATES, DELETE ACYCLICITY CONSTRAINTS, 
-    // RUNTIME ACYCLICITY CHECK
-    // DEF 5
-

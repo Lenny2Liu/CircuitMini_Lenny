@@ -15,6 +15,14 @@ struct WireVars {
     int v2;
 };
 
+struct MinimizationResult {
+    bool success;
+    int totalGates;
+    int joinGates;
+    std::vector<int> gateAssignments;  // Store the solution if needed
+};
+
+
 
 int addExactlyOneConstraint(const std::vector<int>& vars, std::vector<std::string>& clauses);
 int addConstGateCompatibilityConstraints(
@@ -61,6 +69,6 @@ int addEquivalenceConstraints(
     std::vector<std::string>& clauses
 );
 
-QDPLLResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const std::string& filename);
+MinimizationResult encodeSubcircuitAsQBF(const Circuit& subcircuit, const int numGates, const std::string& filename, const int numJOINs);
 
 #endif 

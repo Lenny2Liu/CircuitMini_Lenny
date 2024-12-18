@@ -322,3 +322,13 @@ vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize) {
 int getGateCount(const Circuit& circuit) {
     return circuit.gates.size();
 }
+
+int getJOINCount(const Circuit& circuit) {
+    int count = 0;
+    for (const Gate& gate : circuit.gates) {
+        if (gate.type == JOIN) {
+            count++;
+        }
+    }
+    return count;
+}

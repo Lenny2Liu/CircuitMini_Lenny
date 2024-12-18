@@ -7,6 +7,45 @@
 
 using namespace std;
 
+struct SubcircuitResult {
+        int originalJoins;
+        int minimizedJoins;
+        int totalGates;
+    };
+
+
+
+MinimizationResult findMinimumJoinGates(const Circuit& subcircuit, int index, int numGates) {
+    int left = 0;  // minimum possible JOIN gates
+    int right = getJOINCount(subcircuit);  // maximum possible JOIN gates
+    MinimizationResult bestResult;
+    bestResult.success = false;
+
+    while (left <= right) {
+        int mid = left + (right - left) / 2;
+        
+        string qbfFilename = "../qbf/subcircuit_" + to_string(index) + "_#join_" + to_string(mid) + ".qdimacs";
+        if (right == 0) {
+            cout << "No JOIN gates in subcircuit " << index << endl;
+            break;
+        }
+        MinimizationResult currentResult = encodeSubcircuitAsQBF(
+            subcircuit, numGates, qbfFilename, mid);  // Pass maximum allowed joins
+            
+        if (currentResult.success) {
+            bestResult = currentResult;
+            right = mid - 1;  // Try to find solution with fewer JOIN gates
+        } else {
+            // No solution with 'mid' JOIN gates, try more
+            left = mid + 1;
+        }
+    }
+    
+    return bestResult;
+}
+
+
+
 int main(int argc, char* argv[]) {
     if (argc != 2) {
         cerr << "Usage: <input_circuit_file>" << endl;
@@ -21,51 +60,31 @@ int main(int argc, char* argv[]) {
     int windowSize = 5; // By default, can change
     vector<Circuit> subcircuits = partitionCircuit(circuit, windowSize);
     cout << "Circuit has been partitioned into " << subcircuits.size() << " subcircuits" << endl;
+    vector<SubcircuitResult> results;
 
     for (size_t i = 0; i < subcircuits.size(); ++i) {
-        cout << "Subcircuit " << i + 1 << ":" << endl;
+        cout << "Processing subcircuit " << i + 1 << "..." << endl;
+        
+        // Get original JOIN gate count
+        int originalJoins = 0;
         for (const auto& gate : subcircuits[i].gates) {
-            cout << "Gate: " << gate.type << ", Input1: " << gate.input1 << ", Input2: " << gate.input2 << ", Output: " << gate.output << endl;
+            if (gate.type == JOIN) originalJoins++;
         }
-        cout << endl;
-    }
-    int maxEll = windowSize;
-    QDPLLResult result;
-    for (size_t i = 0; i < subcircuits.size(); ++i) { 
-        bool found = false;
-        for (int ell = 3; ell <= getGateCount(subcircuits[i]); ell++) {
-            string qbfFilename = "../qbf/subcircuit_" + to_string(i + 1) + "_ell_" + to_string(ell) + ".qdimacs";
-            result = encodeSubcircuitAsQBF(subcircuits[i], ell, qbfFilename);
-            if (result == QDPLL_RESULT_SAT) {
-                cout << "Found a solution with ell = " << ell << " gates for subcircuit " << i + 1 << endl;
-                found = true;
-                MinimizedCount ++;
-                minimizedGateCount += windowSize - ell;
-                break;
-            }
-            cout << "Subcircuit " << i + 1 << " with ell = " << ell << " has been written to " << qbfFilename << endl;
-
-            // string solverCommand = "./depqbf " + qbfFilename + " > solver_output.txt";
-            // int result = system(solverCommand.c_str());
-
-            // ifstream solverOutput("solver_output.txt");
-            // string firstLine;
-            // getline(solverOutput, firstLine);
-            // if (firstLine == "SAT") {
-            //     cout << "Found a solution with ell = " << ell << " gates for subcircuit " << i + 1 << endl;
-            //     found = true;
-            //     MinimizedCount ++;
-            //     minimizedGateCount += windowSize - ell;
-            //     break;
-            // } else {
-            //     cout << "No solution with ell = " << ell << " gates for subcircuit " << i + 1 << endl;
-            // }
-        }
-        if (!found) {
-            cout << "Could not synthesize subcircuit " << i + 1 << " within the gate limit." << endl;
+        
+        // Find minimum JOIN gates solution
+        MinimizationResult result = findMinimumJoinGates(
+            subcircuits[i], 
+            i + 1,
+            getGateCount(subcircuits[i]) * 2  // Allow up to 2x gates
+        );
+        
+        if (result.success) {
+            cout << "Successfully minimized subcircuit " << i + 1 << ":" << endl;
+            cout << "  Original JOIN gates: " << originalJoins << endl;
+            cout << "  Minimized JOIN gates: " << result.joinGates << endl;
+            cout << "  Total gates used: " << result.totalGates << endl;
+        } else {
+            cout << "Could not minimize subcircuit " << i + 1 << endl;
         }
     }
-    cout << "Total minimized count: " << MinimizedCount << endl;
-    cout << "Total minimized gate count: " << minimizedGateCount << endl;
-    return 0;
 }

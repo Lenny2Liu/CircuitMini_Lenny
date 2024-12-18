@@ -21,7 +21,7 @@ struct Circuit {
 int getGateCount(const Circuit& circuit);
 Circuit readCircuit(const std::string& filename);
 std::vector<Circuit> partitionCircuit(const Circuit& circuit, int windowSize);
-
+int getJOINCount(const Circuit& circuit);
 extern std::unordered_map<std::string, GateType> gateMap;
 
 #endif
